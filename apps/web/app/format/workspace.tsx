@@ -511,7 +511,7 @@ export default function Workspace() {
     <main id="format">
       <header className="work-header">
         <Link className="brand" href="/">
-          <span className="seal">锦</span>锦章 <span className="workspace-title">在线排版</span>
+          <span className="seal">锦章</span> <span className="workspace-title">在线排版</span>
         </Link>
         <div className="toolbar">
           <div className="toolbar-group">

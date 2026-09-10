@@ -6,7 +6,7 @@ export default function Home() {
     <main id="home">
       <header>
         <Link className="brand" href="/">
-          <span className="seal">锦</span>锦章 <small>JINZHANG</small>
+          <span className="seal">锦章</span> <small>JINZHANG</small>
         </Link>
         <nav>
           <a href="#themes">排版样式</a>

@@ -96,8 +96,11 @@ small,
   color: #fff;
   border: 3px double #fff;
   border-radius: 7px;
-  width: 35px;
+  width: 64px;
   height: 38px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  letter-spacing: 2px;
   display: grid;
   place-items: center;
   font-family: serif;
