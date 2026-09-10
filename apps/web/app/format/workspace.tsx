@@ -15,6 +15,7 @@ import {
   themes,
   escapeHtml,
   replaceImageReference,
+  extractMarkdownTitle,
   type RenderResult,
   type PreparedArticle,
   type ImageRef,
@@ -309,7 +310,7 @@ export default function Workspace() {
     }
   }
   function loadExample() {
-    update({ ...freshDocument(), markdown: sampleMarkdown, title: '把写作还给写作' });
+    update({ markdown: sampleMarkdown, title: '把写作还给写作' });
     setNotice('已载入示例。也可以拖入自己的图片。');
     setModal(null);
   }
@@ -551,10 +552,16 @@ export default function Workspace() {
               onChange={(e) => update({ title: e.target.value }, true)}
             />
             <button
-              onClick={() => {
-                const match = doc.markdown.match(/^#\s+(.+)$/m);
-                if (match) update({ title: match[1].trim() });
-                else setNotice('没有找到正文一级标题。');
+              onClick={async () => {
+                const token = version.current.current();
+                try {
+                  const title = await extractMarkdownTitle(doc.markdown);
+                  if (token !== version.current.current()) return;
+                  if (title) update({ title });
+                  else setNotice('没有找到正文一级标题。');
+                } catch {
+                  if (token === version.current.current()) setNotice('未能读取标题，请重试。');
+                }
               }}
             >
               用正文一级标题
@@ -756,7 +763,7 @@ export default function Workspace() {
         {modal === 'sample' && (
           <>
             <h2>用示例替换当前原文？</h2>
-            <p>当前原文与排版设置会被替换，请先保留需要的内容。</p>
+            <p>将替换当前文章，平台与排版设置保留。请先保留需要的原文。</p>
             <div className="modal-actions">
               <button onClick={() => setModal(null)}>取消</button>
               <button className="primary" onClick={loadExample}>

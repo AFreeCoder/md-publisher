@@ -112,6 +112,43 @@ test('更多菜单按惯例关闭，后台上传不阻塞公众号或已删图�
   await expect.poll(() => uploadFinished).toBe(true);
   await expect(page.getByRole('button', { name: '重试上传' })).toHaveCount(0);
 });
+test('标题提取忽略代码，示例替换保留两个平台的个人设置', async ({ page }) => {
+  await page.goto('/format');
+  const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
+  const title = page.getByRole('textbox', { name: '文章标题' });
+  await title.fill('保留的标题');
+  await editor.fill('```sh\n# 代码注释\n```');
+  await page.getByRole('button', { name: '用正文一级标题' }).click();
+  await expect(page.getByRole('status')).toHaveText('没有找到正文一级标题。');
+  await expect(title).toHaveValue('保留的标题');
+  await editor.fill('```sh\n# 代码注释\n```\n\n# **真正**的标题');
+  await page.getByRole('button', { name: '用正文一级标题' }).click();
+  await expect(title).toHaveValue('真正的标题');
+  await page.getByRole('button', { name: 'Mac', exact: true }).click();
+  await page.getByText('编辑固定文案 ↗', { exact: true }).click();
+  await page.getByRole('textbox', { name: '作者名', exact: true }).fill('公众号作者');
+  await page.getByRole('checkbox', { name: '文章开头', exact: true }).check();
+  await page.getByRole('button', { name: '知乎', exact: true }).click();
+  await page.getByRole('textbox', { name: '作者名', exact: true }).fill('知乎作者');
+  await page.getByText('···', { exact: true }).click();
+  await page.getByRole('button', { name: '载入示例', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '载入示例', exact: true }).click();
+  await expect(page.getByRole('button', { name: '知乎', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('textbox', { name: '作者名', exact: true })).toHaveValue('知乎作者');
+  await expect(editor).toHaveValue(/把写作还给写作/);
+  await page.getByRole('button', { name: '微信公众号', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Mac', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('textbox', { name: '作者名', exact: true })).toHaveValue(
+    '公众号作者',
+  );
+  await expect(page.getByRole('checkbox', { name: '文章开头', exact: true })).toBeChecked();
+});
 test('补图、刷新恢复、真实富文本复制到两个平台、封面不进入正文', async ({ page }) => {
   await page.goto('/format');
   await page

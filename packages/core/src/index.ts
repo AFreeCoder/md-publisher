@@ -111,6 +111,14 @@ async function parse(markdown: string, warnings: Warning[]): Promise<Root> {
     warnings.push({ code: 'HTML_STRIPPED', message: '已清理不支持或不安全的 HTML 标签、属性。' });
   return clean;
 }
+export async function extractMarkdownTitle(markdown: string): Promise<string> {
+  const source = markdown
+    .replace(/^\uFEFF/, '')
+    .replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
+  const body = await parse(source, []);
+  const heading = body.children.find((node) => node.type === 'element' && node.tagName === 'h1');
+  return heading ? toText(heading).trim() : '';
+}
 export async function prepare(input: ArticleInput, opts: PrepareOptions): Promise<PreparedArticle> {
   const warnings: Warning[] = [];
   let source = input.markdown.replace(/^\uFEFF/, '');

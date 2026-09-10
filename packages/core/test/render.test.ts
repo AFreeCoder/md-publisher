@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { prepare, render, placeImages, template, themes } from '../src/index';
+import { prepare, render, placeImages, template, themes, extractMarkdownTitle } from '../src/index';
 import type { AssetResolver } from '../src/types';
 const resolver: AssetResolver = {
   resolve: async (ref) =>
@@ -8,6 +8,18 @@ const resolver: AssetResolver = {
 const make = async (markdown: string, platform: 'wechat' | 'zhihu' = 'wechat', title = '') =>
   prepare({ markdown, title }, { platform, fixed: { header: false, footer: false }, resolver });
 describe('共享渲染', () => {
+  it('提取真实一级标题，忽略代码、引用和 frontmatter，保留标题可见文本', async () => {
+    expect(
+      await extractMarkdownTitle('```sh\n# 代码注释\n```\n\n    # 缩进代码\n\n> # 引用标题'),
+    ).toBe('');
+    expect(
+      await extractMarkdownTitle(
+        '---\n# 元数据注释\n---\n\n# **真正**的 [标题](https://example.test) `code`\n\n# 后续标题',
+      ),
+    ).toBe('真正的 标题 code');
+    expect(await extractMarkdownTitle('Setext 标题\n===\n\n正文')).toBe('Setext 标题');
+    expect(await extractMarkdownTitle('## 二级标题')).toBe('');
+  });
   it('裸网址末尾中文句读留在正文，显式链接目标保持原样', async () => {
     const source =
       '网址：https://github.com/。\n\nhttps://example.test/路径！？\n\n[显式链接](https://example.test/。)';
