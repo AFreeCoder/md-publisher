@@ -618,7 +618,7 @@ export default function Workspace() {
           预览
         </button>
       </div>
-      <div className={`workspace pane-${mobilePane}`}>
+      <div className={`workspace pane-${mobilePane}${mobilePreview ? ' phone-preview' : ''}`}>
         <section className="input-panel">
           <div className="panel-label">
             <span>Markdown 原文</span>

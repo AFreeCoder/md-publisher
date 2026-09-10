@@ -2,6 +2,33 @@ import { test, expect } from '@playwright/test';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 const fixture = path.resolve('fixtures/sample.png');
+test('手机画布与预览栏一起收窄，正文不过度留白且小屏不横向溢出', async ({ page }) => {
+  await page.goto('/format');
+  await page
+    .getByRole('textbox', { name: 'Markdown 原文' })
+    .fill('## 手机阅读\n\n这是一段用于核对手机左右边距的正文。');
+  const body = page.frameLocator('iframe').locator('body');
+  await expect(body).toContainText('手机阅读');
+  const original = await page.frameLocator('iframe').locator('article').innerHTML();
+  for (const width of [1920, 1440, 800]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.getByRole('button', { name: '手机', exact: true }).click();
+    await expect(page.locator('.preview-panel')).toHaveCSS('width', '444px');
+    await expect(page.locator('iframe')).toHaveCSS('width', '420px');
+    await expect(body).toHaveCSS('padding-left', '16px');
+    expect(await page.frameLocator('iframe').locator('article').innerHTML()).toBe(original);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '预览', exact: true }).click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(body).toHaveCSS('padding-left', '16px');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: '自适应', exact: true }).click();
+  await expect(body).toHaveCSS('padding-left', '22px');
+});
 test('新建保留设置与上一稿，刷新后恢复，取消不丢内容', async ({ page }) => {
   await page.goto('/format');
   const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
