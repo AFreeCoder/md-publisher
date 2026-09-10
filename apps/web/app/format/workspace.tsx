@@ -49,7 +49,7 @@ export default function Workspace() {
   const [preview, setPreview] = useState('');
   const [notice, setNotice] = useState('');
   const [mobilePreview, setMobilePreview] = useState(false);
-  const [uploading, setUploading] = useState(0);
+  const [pendingUploads, setPendingUploads] = useState<string[]>([]);
   const [uploadFailed, setUploadFailed] = useState<string[]>([]);
   const uploadGeneration = useRef(0);
   const [modal, setModal] = useState<Modal>(null);
@@ -75,6 +75,7 @@ export default function Workspace() {
   const frame = useRef<HTMLIFrameElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
+  const moreMenu = useRef<HTMLDetailsElement>(null);
   const preparedCache = useRef<{ key: string; value: PreparedArticle } | undefined>(undefined);
   const urls = useRef<string[]>([]);
   const inputOnly = useRef(false);
@@ -193,6 +194,24 @@ export default function Workspace() {
   }, [doc, ready]);
   useEffect(() => () => urls.current.forEach(URL.revokeObjectURL), []);
   useEffect(() => {
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !moreMenu.current?.contains(event.target))
+        moreMenu.current?.removeAttribute('open');
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && moreMenu.current?.open) {
+        moreMenu.current.removeAttribute('open');
+        moreMenu.current.querySelector('summary')?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
+  useEffect(() => {
     if (copyPhase !== 'success') return;
     const timer = setTimeout(() => setCopyPhase('idle'), 2500);
     return () => clearTimeout(timer);
@@ -204,7 +223,7 @@ export default function Workspace() {
   }, [notice]);
   async function uploadImages(refs: string[]) {
     const generation = uploadGeneration.current;
-    setUploading((n) => n + refs.length);
+    setPendingUploads((old) => [...old, ...refs]);
     setUploadFailed((old) => old.filter((r) => !refs.includes(r)));
     const store = new CopyImageStore('zhihu', AbortSignal.timeout(60_000), () => {
       if (generation !== uploadGeneration.current) throw new Error('上传已取消');
@@ -217,7 +236,10 @@ export default function Workspace() {
         if (generation === uploadGeneration.current)
           setUploadFailed((old) => [...new Set([...old, ref])]);
       } finally {
-        setUploading((n) => Math.max(0, n - 1));
+        setPendingUploads((old) => {
+          const index = old.indexOf(ref);
+          return index < 0 ? old : [...old.slice(0, index), ...old.slice(index + 1)];
+        });
       }
     }
   }
@@ -412,6 +434,9 @@ export default function Workspace() {
     }
   }
   const missing = result?.images.filter((i) => i.source.kind === 'missing') || [];
+  const referencedImages = new Set(result?.images.map((image) => image.original));
+  const uploading = pendingUploads.filter((ref) => referencedImages.has(ref)).length;
+  const currentUploadFailed = uploadFailed.filter((ref) => referencedImages.has(ref));
   const unique = (images: ImageRef[]) => [...new Map(images.map((i) => [i.original, i])).values()];
   return (
     <main id="format">
@@ -445,7 +470,12 @@ export default function Workspace() {
             </button>
             <button
               className="primary"
-              disabled={!result || !doc.markdown.trim() || busy || uploading > 0}
+              disabled={
+                !result ||
+                !doc.markdown.trim() ||
+                busy ||
+                (doc.platform === 'zhihu' && uploading > 0)
+              }
               onClick={beginCopy}
             >
               {busy
@@ -456,7 +486,7 @@ export default function Workspace() {
             </button>
           </div>
         </div>
-        <details className="workspace-menu">
+        <details className="workspace-menu" ref={moreMenu}>
           <summary aria-label="更多操作">···</summary>
           <nav onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}>
             <button
@@ -553,10 +583,10 @@ export default function Workspace() {
               ))}
             </div>
           )}
-          {uploadFailed.length > 0 && (
+          {currentUploadFailed.length > 0 && (
             <div className="copy-error" role="status">
               <span>图片上传失败，本地图片已保留</span>
-              <button onClick={() => void uploadImages(uploadFailed)}>重试上传</button>
+              <button onClick={() => void uploadImages(currentUploadFailed)}>重试上传</button>
             </div>
           )}
           <div className="input-bottom">

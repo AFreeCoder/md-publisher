@@ -19,12 +19,17 @@ test('光标插图即时上传，失败可重试，切平台与刷新复用图�
   await (await chooser).setFiles(fixture);
   await expect(editor).toHaveValue(/^前文\n\n!\[.*\]\(jz-local:.*\)\n后文$/);
   await expect(page.getByRole('button', { name: '重试上传' })).toBeVisible();
+  const articleWithImage = await editor.inputValue();
+  await editor.fill('图片已删除');
+  await expect(page.getByRole('button', { name: '重试上传' })).toHaveCount(0);
+  await editor.fill(articleWithImage);
+  await expect(page.getByRole('button', { name: '重试上传' })).toBeVisible();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.getByRole('button', { name: '重试上传' }).click();
   await expect(page.getByRole('button', { name: '复制到公众号 ↗' })).toBeEnabled();
   await expect(page.frameLocator('iframe').locator('header img')).toHaveCount(0);
   await expect(page.frameLocator('iframe').getByText('未设置封面')).toHaveCount(0);
-  expect(uploads).toBe(2);
+  await expect.poll(() => uploads).toBe(2);
   await page.getByRole('button', { name: '知乎', exact: true }).click();
   await page.reload();
   await page.getByRole('button', { name: '复制到知乎 ↗' }).click();
@@ -65,6 +70,47 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/transit/complete', (route) =>
     route.fulfill({ json: { url: 'https://oss.example.test/read?signature=test' } }),
   );
+});
+test('更多菜单按惯例关闭，后台上传不阻塞公众号或已删图的文章', async ({ page }) => {
+  await page.goto('/format');
+  const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
+  const menu = page.locator('.workspace-menu');
+  const trigger = menu.locator('summary');
+  await trigger.click();
+  await editor.click();
+  await expect(menu).not.toHaveAttribute('open');
+  await trigger.click();
+  await page.keyboard.press('Escape');
+  await expect(menu).not.toHaveAttribute('open');
+  await expect(trigger).toBeFocused();
+
+  let releaseUpload!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    releaseUpload = resolve;
+  });
+  let uploadStarted = false;
+  let uploadFinished = false;
+  await page.route('https://oss.example.test/upload', async (route) => {
+    uploadStarted = true;
+    await waiting;
+    await route.fulfill({ status: 500, body: '' });
+    uploadFinished = true;
+  });
+  await editor.fill('正文');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: '＋ 插入图片' }).click();
+  await (await chooser).setFiles(fixture);
+  await expect.poll(() => uploadStarted).toBe(true);
+  await expect(page.getByText('正在上传 1 张图片…', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '复制到公众号 ↗' }).click();
+  await expect(page.getByRole('button', { name: '已复制 ✓' })).toBeVisible();
+  await editor.fill('已删图片的正文');
+  await page.getByRole('button', { name: '知乎', exact: true }).click();
+  await expect(page.getByRole('button', { name: '复制到知乎 ↗' })).toBeEnabled();
+  await expect(page.getByText('正在上传 1 张图片…', { exact: true })).toHaveCount(0);
+  releaseUpload();
+  await expect.poll(() => uploadFinished).toBe(true);
+  await expect(page.getByRole('button', { name: '重试上传' })).toHaveCount(0);
 });
 test('补图、刷新恢复、真实富文本复制到两个平台、封面不进入正文', async ({ page }) => {
   await page.goto('/format');
