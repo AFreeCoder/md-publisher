@@ -397,7 +397,8 @@ footer {
 }
 .work-header {
   padding: 0 28px;
-  height: 64px;
+  height: 60px;
+  gap: 16px;
 }
 .work-header .brand {
   font-size: 20px;
@@ -415,18 +416,58 @@ footer {
   font-weight: 400;
 }
 .toolbar {
-  height: 66px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 28px;
-  border-bottom: 1px solid var(--line);
-  gap: 15px;
+  margin-left: auto;
+  gap: 12px;
 }
 .toolbar-group {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+.workspace-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+.workspace-menu summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 3px 10px;
+  font-size: 24px;
+  border-radius: 6px;
+}
+.workspace-menu summary::-webkit-details-marker {
+  display: none;
+}
+.workspace-menu summary:hover {
+  background: #f5f5f5;
+}
+.workspace-menu summary:focus-visible {
+  outline: 2px solid var(--red);
+}
+.work-header .workspace-menu nav {
+  position: absolute;
+  right: 0;
+  top: 42px;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  width: 170px;
+  padding: 6px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px #00000014;
+}
+.workspace-menu nav button,
+.work-header .workspace-menu nav a {
+  display: block;
+  text-align: left;
+  padding: 9px 12px;
+  font-size: 13px;
 }
 .segment {
   padding: 3px;
@@ -509,9 +550,9 @@ footer {
   background: none;
   padding: 28px 24px 20px;
   line-height: 2;
-  font-size: 12px;
+  font-size: 16px;
   font-family: 'SFMono-Regular', Consolas, monospace;
-  color: #70766a;
+  color: #41483f;
   outline: none;
 }
 .input-bottom {
@@ -879,7 +920,7 @@ select,
     font-size: 45px;
   }
   .toolbar {
-    padding: 0 20px;
+    padding: 0;
   }
   .toolbar-group {
     gap: 7px;
@@ -940,7 +981,27 @@ select,
     line-height: 1.8;
   }
   .work-header {
-    padding: 0 14px;
+    padding: 8px 14px;
+    height: 108px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+  .work-header .toolbar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    margin-left: 0;
+    justify-content: space-between;
+  }
+  .work-header .workspace-menu {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .work-header .segment button {
+    padding: 7px 9px;
+  }
+  .work-header .toolbar .primary {
+    padding: 9px 10px;
   }
   .work-header .brand {
     font-size: 18px;
@@ -956,15 +1017,13 @@ select,
   }
   .toolbar {
     height: auto;
-    min-height: 102px;
-    align-items: start;
-    flex-direction: column;
-    padding: 12px 14px;
-    gap: 10px;
+    min-height: 0;
+    align-items: center;
+    padding: 0;
+    gap: 8px;
   }
   .toolbar-group {
-    width: 100%;
-    justify-content: space-between;
+    width: auto;
   }
   .toolbar-group small {
     font-size: 10px;
@@ -977,7 +1036,7 @@ select,
   }
   .editor {
     min-height: 320px;
-    font-size: 11px;
+    font-size: 16px;
   }
   .preview-scroll {
     height: 670px;
@@ -1030,7 +1089,7 @@ body {
   background: #fff;
 }
 .workspace {
-  min-height: calc(100vh - 170px);
+  min-height: calc(100vh - 100px);
 }
 .review {
   display: none;
@@ -1044,7 +1103,7 @@ body {
   min-height: 0;
 }
 .preview-scroll {
-  height: calc(100vh - 185px);
+  height: calc(100vh - 115px);
   min-height: 540px;
   padding: 0 12px;
   overflow: hidden;
@@ -1226,7 +1285,7 @@ select:focus-visible {
 }
 @media (max-width: 1100px) {
   .settings {
-    top: 130px;
+    top: 60px;
   }
   .settings-close {
     display: block;
@@ -1234,7 +1293,7 @@ select:focus-visible {
 }
 @media (max-width: 720px) {
   .settings {
-    top: 166px;
+    top: 108px;
   }
   .preview-scroll {
     height: 650px;

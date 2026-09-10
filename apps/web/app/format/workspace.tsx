@@ -39,7 +39,7 @@ import {
   type FixedContent,
 } from '../../lib/document';
 const titleFor = (p: string) => (p === 'wechat' ? '公众号' : '知乎');
-type Modal = 'cover' | 'clear' | 'sample' | null;
+type Modal = 'clear' | 'sample' | null;
 export default function Workspace() {
   const [doc, setDoc] = useState<DocumentState>(freshDocument);
   const docRef = useRef(doc);
@@ -47,8 +47,6 @@ export default function Workspace() {
   const [storageStatus, setStorageStatus] = useState('正在恢复本地数据…');
   const [result, setResult] = useState<RenderResult>();
   const [preview, setPreview] = useState('');
-  const [coverUrl, setCoverUrl] = useState('');
-  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState('');
   const [mobilePreview, setMobilePreview] = useState(false);
   const [uploading, setUploading] = useState(0);
@@ -173,9 +171,6 @@ export default function Workspace() {
             /<img\b[^>]*src=""[^>]*>/,
             `<section class="missing">图片缺失：${escapeHtml(image.original)}</section>`,
           );
-        const selectedCover = output.cover
-          ? await store.put(output.cover, { platform: doc.platform, role: 'cover' })
-          : undefined;
         if (!live || token !== version.current.current()) {
           allocated.forEach(URL.revokeObjectURL);
           return;
@@ -183,12 +178,8 @@ export default function Workspace() {
         const oldUrls = urls.current;
         urls.current = allocated;
         setTimeout(() => oldUrls.forEach(URL.revokeObjectURL), 1500);
-        setCoverUrl(selectedCover?.src || '');
-        setImageUrls(mapping);
         setResult(output);
-        setPreview(
-          previewDocument(output, html, { coverSrc: selectedCover?.src, date: config.date }),
-        );
+        setPreview(previewDocument(output, html, { hideCover: true, date: config.date }));
       } catch (error) {
         allocated.forEach(URL.revokeObjectURL);
         if (live && token === version.current.current())
@@ -421,8 +412,6 @@ export default function Workspace() {
     }
   }
   const missing = result?.images.filter((i) => i.source.kind === 'missing') || [];
-  const candidates =
-    result?.images.filter((i) => !i.inFixedContent && i.source.kind !== 'missing') || [];
   const unique = (images: ImageRef[]) => [...new Map(images.map((i) => [i.original, i])).values()];
   return (
     <main id="format">
@@ -430,67 +419,65 @@ export default function Workspace() {
         <Link className="brand" href="/">
           <span className="seal">锦</span>锦章 <span className="workspace-title">在线排版</span>
         </Link>
-        <nav>
-          <button className="quiet clear-button" onClick={() => setModal('clear')}>
-            清除本地数据
-          </button>
-          <a
-            className="github"
-            href="https://github.com/AFreeCoder/jinzhang-md-publisher"
-            target="_blank"
-            rel="noreferrer"
-          >
-            GitHub ↗
-          </a>
-        </nav>
-      </header>
-      <div className="toolbar">
-        <div className="toolbar-group">
-          <div className="segment">
-            {(['wechat', 'zhihu'] as const).map((p) => (
-              <button
-                key={p}
-                aria-pressed={doc.platform === p}
-                className={doc.platform === p ? 'active' : ''}
-                onClick={() => update({ platform: p })}
-              >
-                {p === 'wechat' ? '微信公众号' : '知乎'}
-              </button>
-            ))}
+        <div className="toolbar">
+          <div className="toolbar-group">
+            <div className="segment">
+              {(['wechat', 'zhihu'] as const).map((p) => (
+                <button
+                  key={p}
+                  aria-pressed={doc.platform === p}
+                  className={doc.platform === p ? 'active' : ''}
+                  onClick={() => update({ platform: p })}
+                >
+                  {p === 'wechat' ? '微信公众号' : '知乎'}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="tool-divider" />
-          <small style={{ fontSize: 11 }}>
-            {doc.platform === 'wechat' ? '样式预览' : '结构预览'}
-          </small>
+          <div className="toolbar-group">
+            <button
+              className="settings-toggle"
+              style={{ display: 'none' }}
+              aria-expanded={settings}
+              onClick={() => setSettings(!settings)}
+            >
+              排版设置
+            </button>
+            <button
+              className="primary"
+              disabled={!result || !doc.markdown.trim() || busy || uploading > 0}
+              onClick={beginCopy}
+            >
+              {busy
+                ? '正在复制…'
+                : copyPhase === 'success'
+                  ? '已复制 ✓'
+                  : `复制到${titleFor(doc.platform)} ↗`}
+            </button>
+          </div>
         </div>
-        <div className="toolbar-group">
-          <button
-            className="quiet"
-            onClick={() => (doc.markdown ? setModal('sample') : loadExample())}
-          >
-            载入示例
-          </button>
-          <button
-            className="settings-toggle"
-            style={{ display: 'none' }}
-            aria-expanded={settings}
-            onClick={() => setSettings(!settings)}
-          >
-            排版设置
-          </button>
-          <button
-            className="primary"
-            disabled={!result || !doc.markdown.trim() || busy || uploading > 0}
-            onClick={beginCopy}
-          >
-            {busy
-              ? '正在复制…'
-              : copyPhase === 'success'
-                ? '已复制 ✓'
-                : `复制到${titleFor(doc.platform)} ↗`}
-          </button>
-        </div>
-      </div>
+        <details className="workspace-menu">
+          <summary aria-label="更多操作">···</summary>
+          <nav onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}>
+            <button
+              className="quiet"
+              onClick={() => (doc.markdown ? setModal('sample') : loadExample())}
+            >
+              载入示例
+            </button>
+            <button className="quiet clear-button" onClick={() => setModal('clear')}>
+              清除本地数据
+            </button>
+            <a
+              href="https://github.com/AFreeCoder/jinzhang-md-publisher"
+              target="_blank"
+              rel="noreferrer"
+            >
+              GitHub ↗
+            </a>
+          </nav>
+        </details>
+      </header>
       {notice && (
         <div className="toast" role="status">
           {notice}
@@ -543,7 +530,7 @@ export default function Workspace() {
               用正文一级标题
             </button>
           </div>
-          <div className="input-hint">标题与封面仅用于预览，请在平台编辑器里单独设置。</div>
+          <div className="input-hint">标题仅用于预览。</div>
           <textarea
             ref={editor}
             className="editor"
@@ -707,30 +694,6 @@ export default function Workspace() {
             </details>
             <p>每个平台单独保存，仅样式与文案。</p>
           </div>
-          <div className="settings-section">
-            <h3>
-              文章封面 <span className="review-label">03</span>
-            </h3>
-            {coverUrl ? (
-              <img className="image-cover" alt="当前预览封面" src={coverUrl} />
-            ) : (
-              <div className="muted" style={{ fontSize: 12 }}>
-                未设置封面
-              </div>
-            )}
-            <button
-              className="cover-button"
-              disabled={!candidates.length}
-              onClick={() => setModal('cover')}
-            >
-              更换封面 ↗
-            </button>
-            <p>
-              {doc.cover ? '已手动选择' : '默认使用正文首图'} · 只影响预览
-              <br />
-              复制正文时不包含封面。
-            </p>
-          </div>
         </aside>
       </div>
       <div className="statusbar">
@@ -748,38 +711,6 @@ export default function Workspace() {
         }}
       >
         <div className="eyebrow">JINZHANG</div>
-        {modal === 'cover' && (
-          <>
-            <h2>选择预览封面</h2>
-            <p>仅影响预览；复制时不包含封面。</p>
-            <div className="image-list">
-              {unique(candidates).map((i) => (
-                <button
-                  className="image-item"
-                  key={i.id}
-                  onClick={() => {
-                    update({ cover: i.original });
-                    setModal(null);
-                  }}
-                >
-                  <img src={imageUrls[i.original]} alt="封面候选" />
-                  <span>{i.original}</span>
-                </button>
-              ))}
-            </div>
-            <div className="modal-actions">
-              <button
-                onClick={() => {
-                  update({ cover: '' });
-                  setModal(null);
-                }}
-              >
-                恢复正文首图
-              </button>
-              <button onClick={() => setModal(null)}>取消</button>
-            </div>
-          </>
-        )}
         {modal === 'clear' && (
           <>
             <h2>清除本浏览器的数据？</h2>

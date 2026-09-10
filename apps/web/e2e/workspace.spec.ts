@@ -4,6 +4,9 @@ const fixture = path.resolve('fixtures/sample.png');
 test('光标插图即时上传，失败可重试，切平台与刷新复用图片', async ({ page }) => {
   await page.goto('/format');
   const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
+  await expect(editor).toHaveCSS('font-size', '16px');
+  await expect(page.locator('.work-header')).toHaveCSS('height', '60px');
+  await expect(page.getByRole('button', { name: '更换封面 ↗' })).toHaveCount(0);
   await editor.fill('前文\n后文');
   await editor.press('Home');
   let uploads = 0;
@@ -19,6 +22,8 @@ test('光标插图即时上传，失败可重试，切平台与刷新复用图�
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.getByRole('button', { name: '重试上传' }).click();
   await expect(page.getByRole('button', { name: '复制到公众号 ↗' })).toBeEnabled();
+  await expect(page.frameLocator('iframe').locator('header img')).toHaveCount(0);
+  await expect(page.frameLocator('iframe').getByText('未设置封面')).toHaveCount(0);
   expect(uploads).toBe(2);
   await page.getByRole('button', { name: '知乎', exact: true }).click();
   await page.reload();
@@ -119,6 +124,7 @@ test('两平台预览、移动布局和清除只作用于当前站点数据', as
   await page.goto('/');
   await expect(page.getByRole('heading', { name: /让文字，.*锦绣成章/ })).toBeVisible();
   await page.getByRole('link', { name: '打开在线排版' }).click();
+  await page.getByText('···', { exact: true }).click();
   await page.getByRole('button', { name: '载入示例', exact: true }).click();
   await expect(
     page.frameLocator('iframe').getByRole('heading', { name: '01 让内容，回到中心' }),
@@ -133,6 +139,7 @@ test('两平台预览、移动布局和清除只作用于当前站点数据', as
   await page.getByRole('button', { name: '排版设置', exact: true }).click();
   await expect(page.getByRole('button', { name: '关闭设置 ×' })).toBeVisible();
   await page.getByRole('button', { name: '关闭设置 ×' }).click();
+  await page.getByText('···', { exact: true }).click();
   await page.getByRole('button', { name: '清除本地数据', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: '清除本地数据', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Markdown 原文' })).toHaveValue('');
