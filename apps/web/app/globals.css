@@ -1173,6 +1173,34 @@ body {
 }
 .preview-paper.mobile-preview {
   width: 420px;
+  border-radius: 28px;
+  outline: 5px solid #e3e6ea;
+  overflow: hidden;
+  box-shadow:
+    0 12px 30px #25344b12,
+    0 2px 6px #25344b08;
+  animation: phone-preview-enter 180ms ease-out;
+}
+.phone-preview .preview-panel {
+  background: #f6f7f9;
+}
+.phone-preview .preview-scroll {
+  padding: 24px 12px;
+}
+@keyframes phone-preview-enter {
+  from {
+    opacity: 0.65;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-paper.mobile-preview {
+    animation: none;
+  }
 }
 .workspace.phone-preview {
   grid-template-columns: minmax(320px, 1fr) minmax(0, 444px) 260px;
