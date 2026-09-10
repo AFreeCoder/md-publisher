@@ -50,6 +50,43 @@ export async function fetchBytes(url: string, signal: AbortSignal) {
   }
   return bytes;
 }
+// 同一张图在插入、切平台及复制时共用中转结果；过期后由本地原图重新上传。
+const transitPending = new Map<string, Promise<PlacedImage>>();
+const transitSaved = new Map<string, { src: string; expires: number }>();
+export function clearTransitCache() {
+  transitSaved.clear();
+  if (typeof localStorage !== 'undefined') localStorage.removeItem('jinzhang-transit-cache');
+}
+async function transitCached(key: string, upload: () => Promise<PlacedImage>) {
+  if (!transitSaved.has(key)) {
+    try {
+      const saved = JSON.parse(localStorage.getItem('jinzhang-transit-cache') || '{}')[key];
+      if (saved?.src && saved.expires > Date.now()) transitSaved.set(key, saved);
+    } catch {
+      /* 存储不可用时仍可上传与复制。 */
+    }
+  }
+  const cached = transitSaved.get(key);
+  if (cached && cached.expires > Date.now()) return { src: cached.src };
+  const pending = transitPending.get(key);
+  if (pending) return pending;
+  const task = upload()
+    .then((placed) => {
+      transitSaved.set(key, { src: placed.src, expires: Date.now() + 6 * 86400_000 });
+      try {
+        const saved = JSON.parse(localStorage.getItem('jinzhang-transit-cache') || '{}');
+        saved[key] = transitSaved.get(key);
+        for (const k of Object.keys(saved)) if (saved[k].expires <= Date.now()) delete saved[k];
+        localStorage.setItem('jinzhang-transit-cache', JSON.stringify(saved));
+      } catch {
+        /* 内存缓存仍可复用。 */
+      }
+      return placed;
+    })
+    .finally(() => transitPending.delete(key));
+  transitPending.set(key, task);
+  return task;
+}
 export class CopyImageStore implements ImageStore {
   warnings: Warning[] = [];
   counts = { embedded: 0, uploaded: 0, remote: 0 };
@@ -117,35 +154,40 @@ export class CopyImageStore implements ImageStore {
       this.counts.embedded++;
       return { src: dataUrl(image.bytes, image.mime) };
     }
-    const json = async (url: string, body: unknown) => {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: this.signal,
+    return transitCached(await digest(image.bytes), async () => {
+      const json = async (url: string, body: unknown) => {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: this.signal,
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.message || '图片中转失败。');
+        return result;
+      };
+      this.onProgress('正在上传图片…');
+      const signed = await json('/api/transit/sign', {
+        mime: image.mime,
+        size: image.bytes.length,
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || '图片中转失败。');
-      return result;
-    };
-    this.onProgress('正在上传图片…');
-    const signed = await json('/api/transit/sign', { mime: image.mime, size: image.bytes.length });
-    this.assertCurrent();
-    const form = new FormData();
-    for (const [k, v] of Object.entries(signed.fields)) form.append(k, String(v));
-    form.append('file', new Blob([new Uint8Array(image.bytes)], { type: image.mime }), 'image');
-    const response = await fetch(signed.url, {
-      method: 'POST',
-      body: form,
-      signal: this.signal,
-      credentials: 'omit',
+      this.assertCurrent();
+      const form = new FormData();
+      for (const [k, v] of Object.entries(signed.fields)) form.append(k, String(v));
+      form.append('file', new Blob([new Uint8Array(image.bytes)], { type: image.mime }), 'image');
+      const response = await fetch(signed.url, {
+        method: 'POST',
+        body: form,
+        signal: this.signal,
+        credentials: 'omit',
+      });
+      if (!response.ok) throw new Error('图片上传失败，请重试。');
+      this.assertCurrent();
+      const completed = await json('/api/transit/complete', { ticket: signed.ticket });
+      this.assertCurrent();
+      this.counts.uploaded++;
+      return { src: completed.url };
     });
-    if (!response.ok) throw new Error('图片上传失败，请重试。');
-    this.assertCurrent();
-    const completed = await json('/api/transit/complete', { ticket: signed.ticket });
-    this.assertCurrent();
-    this.counts.uploaded++;
-    return { src: completed.url };
   }
 }
 export type CopyPayload = Awaited<ReturnType<typeof placeImages>>;

@@ -22,7 +22,13 @@ import {
 } from '@jinzhang/core';
 import { previewDocument } from '@jinzhang/core/preview';
 import { BrowserAssetResolver, CanvasImageCodec } from '@jinzhang/core/browser';
-import { CopyImageStore, TaskVersion, writeClipboard, type CopyPayload } from '../../lib/clipboard';
+import {
+  CopyImageStore,
+  TaskVersion,
+  writeClipboard,
+  clearTransitCache,
+  type CopyPayload,
+} from '../../lib/clipboard';
 import {
   freshDocument,
   restoreDocument,
@@ -33,7 +39,7 @@ import {
   type FixedContent,
 } from '../../lib/document';
 const titleFor = (p: string) => (p === 'wechat' ? '公众号' : '知乎');
-type Modal = 'upload' | 'images' | 'cover' | 'clear' | 'copy' | 'sample' | null;
+type Modal = 'cover' | 'clear' | 'sample' | null;
 export default function Workspace() {
   const [doc, setDoc] = useState<DocumentState>(freshDocument);
   const docRef = useRef(doc);
@@ -44,6 +50,10 @@ export default function Workspace() {
   const [coverUrl, setCoverUrl] = useState('');
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState('');
+  const [mobilePreview, setMobilePreview] = useState(false);
+  const [uploading, setUploading] = useState(0);
+  const [uploadFailed, setUploadFailed] = useState<string[]>([]);
+  const uploadGeneration = useRef(0);
   const [modal, setModal] = useState<Modal>(null);
   const [settings, setSettings] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -75,10 +85,8 @@ export default function Workspace() {
     inputOnly.current = isInput;
     version.current.change();
     controller.current?.abort();
-    if (currentJob.current) {
-      setCopyPhase('stale');
-      setMessage('文章或设置已变化，请重新复制。');
-    }
+    setCopyPhase('idle');
+    setMessage('');
     currentJob.current = undefined;
     setCopySize(undefined);
     setBusy(false);
@@ -194,6 +202,35 @@ export default function Workspace() {
   }, [doc, ready]);
   useEffect(() => () => urls.current.forEach(URL.revokeObjectURL), []);
   useEffect(() => {
+    if (copyPhase !== 'success') return;
+    const timer = setTimeout(() => setCopyPhase('idle'), 2500);
+    return () => clearTimeout(timer);
+  }, [copyPhase]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(''), 4500);
+    return () => clearTimeout(timer);
+  }, [notice]);
+  async function uploadImages(refs: string[]) {
+    const generation = uploadGeneration.current;
+    setUploading((n) => n + refs.length);
+    setUploadFailed((old) => old.filter((r) => !refs.includes(r)));
+    const store = new CopyImageStore('zhihu', AbortSignal.timeout(60_000), () => {
+      if (generation !== uploadGeneration.current) throw new Error('上传已取消');
+    });
+    for (const ref of refs) {
+      try {
+        const source = await resolver.current.resolve(ref);
+        await store.put({ id: ref, original: ref, source } as ImageRef);
+      } catch {
+        if (generation === uploadGeneration.current)
+          setUploadFailed((old) => [...new Set([...old, ref])]);
+      } finally {
+        setUploading((n) => Math.max(0, n - 1));
+      }
+    }
+  }
+  useEffect(() => {
     if (modal) {
       priorFocus.current = document.activeElement as HTMLElement;
       dialog.current?.showModal();
@@ -207,7 +244,6 @@ export default function Workspace() {
     try {
       const selected = Array.from(files);
       if (!selected.length) return;
-      setNotice('正在读取图片…');
       const refs: string[] = [];
       for (const file of binding ? selected.slice(0, 1) : selected) {
         await new CanvasImageCodec().probe(new Uint8Array(await file.arrayBuffer()));
@@ -231,8 +267,8 @@ export default function Workspace() {
         markdown,
         cover: binding && docRef.current.cover === binding ? refs[0] : docRef.current.cover,
       });
-      setNotice('图片已保存在本浏览器。');
-      setModal(null);
+      void uploadImages(refs);
+      editor.current?.focus();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '图片保存失败。');
     } finally {
@@ -267,14 +303,7 @@ export default function Workspace() {
   function beginCopy() {
     if (!result || !doc.markdown.trim()) return;
     if (result.images.some((i) => i.source.kind === 'missing')) {
-      setModal('images');
-      return;
-    }
-    if (
-      doc.platform === 'zhihu' &&
-      result.images.some((i) => i.source.kind === 'blob' || i.source.kind === 'data')
-    ) {
-      setModal('upload');
+      document.querySelector('.missing-images')?.scrollIntoView({ block: 'nearest' });
       return;
     }
     executeCopy();
@@ -283,7 +312,6 @@ export default function Workspace() {
     if (!result) return;
     const token = version.current.current();
     const platform = doc.platform;
-    setModal('copy');
     setBusy(true);
     setCopyPhase('working');
     setMessage('正在准备正文与图片…');
@@ -321,9 +349,7 @@ export default function Workspace() {
       .then(() => {
         version.current.assert(token);
         setCopyPhase('success');
-        setMessage(
-          `已复制，请到${titleFor(platform)}编辑器粘贴后核对。封面请在平台编辑器里单独设置。`,
-        );
+        setMessage('已复制');
         if (selected.store.warnings.length)
           setNotice(selected.store.warnings.map((w) => w.message).join(' '));
         setBusy(false);
@@ -335,7 +361,7 @@ export default function Workspace() {
           await selected.payload;
           version.current.assert(token);
           setCopyPhase('ready');
-          setMessage('已准备，可重试复制；图片不会重复上传。');
+          setMessage('未能写入剪贴板');
         } catch (problem) {
           if (token !== version.current.current()) return;
           currentJob.current = undefined;
@@ -370,16 +396,18 @@ export default function Workspace() {
       selection?.removeAllRanges();
       selection?.addRange(range);
       frame.current?.focus();
-      setNotice(
-        '已选中预览正文，按 ⌘C / Ctrl+C 复制。手动复制是降级方式，请到平台核对格式与图片。',
-      );
+      setCopyPhase('idle');
+      setNotice('按 ⌘C / Ctrl+C 复制');
     }, 100);
   }
   async function clearLocal() {
+    uploadGeneration.current++;
     version.current.change();
     controller.current?.abort();
     try {
       await resolver.current.clear();
+      clearTransitCache();
+      setUploadFailed([]);
       localStorage.removeItem(STORAGE_KEY);
       allowSave.current = true;
       skipSave.current = true;
@@ -393,9 +421,6 @@ export default function Workspace() {
     }
   }
   const missing = result?.images.filter((i) => i.source.kind === 'missing') || [];
-  const localImages = result?.images.filter((i) => ['blob', 'data'].includes(i.source.kind)) || [];
-  const remoteImages =
-    result?.images.filter((i) => ['remote', 'hosted'].includes(i.source.kind)) || [];
   const candidates =
     result?.images.filter((i) => !i.inFixedContent && i.source.kind !== 'missing') || [];
   const unique = (images: ImageRef[]) => [...new Map(images.map((i) => [i.original, i])).values()];
@@ -406,7 +431,6 @@ export default function Workspace() {
           <span className="seal">锦</span>锦章 <span className="workspace-title">在线排版</span>
         </Link>
         <nav>
-          <small style={{ fontSize: 10 }}>◌ 正文在本地处理</small>
           <button className="quiet clear-button" onClick={() => setModal('clear')}>
             清除本地数据
           </button>
@@ -456,25 +480,30 @@ export default function Workspace() {
           </button>
           <button
             className="primary"
-            disabled={!result || !doc.markdown.trim() || busy}
+            disabled={!result || !doc.markdown.trim() || busy || uploading > 0}
             onClick={beginCopy}
           >
-            复制到{titleFor(doc.platform)} ↗
+            {busy
+              ? '正在复制…'
+              : copyPhase === 'success'
+                ? '已复制 ✓'
+                : `复制到${titleFor(doc.platform)} ↗`}
           </button>
         </div>
       </div>
-      <div className="copy-summary">
-        {doc.platform === 'wechat'
-          ? `预计内嵌 ${localImages.length} 张 · 上传 0 张`
-          : `内嵌 0 张 · 将上传 ${localImages.length} 张`}{' '}
-        · {remoteImages.length} 个远程地址{doc.platform === 'wechat' ? '将尝试内嵌' : '将保留'}
-        {missing.length > 0 && ` · ${missing.length} 张缺失待补齐`}
-      </div>
-      {(notice || missing.length > 0) && (
-        <div className="notice" role="status">
-          {missing.length > 0 ? `${missing.length} 张图片缺失，浏览器无法读取本地路径。` : notice}
-          {missing.length > 0 && <button onClick={() => setModal('images')}>补充图片 ↗</button>}
-          <button aria-label="关闭提示" onClick={() => setNotice('')}>
+      {notice && (
+        <div className="toast" role="status">
+          {notice}
+        </div>
+      )}
+      {['ready', 'failed', 'stale'].includes(copyPhase) && (
+        <div className="copy-error" role="status">
+          <span>{message}</span>
+          <button disabled={busy || !result} onClick={beginCopy}>
+            重试复制
+          </button>
+          {copyPhase === 'ready' && <button onClick={() => void selectPreview()}>手动复制</button>}
+          <button aria-label="关闭复制提示" onClick={() => setCopyPhase('idle')}>
             ×
           </button>
         </div>
@@ -527,8 +556,28 @@ export default function Workspace() {
             onDragOver={(e) => e.preventDefault()}
             onDrop={onDrop}
           />
+          {missing.length > 0 && (
+            <div className="missing-images">
+              {unique(missing).map((image) => (
+                <div key={image.original}>
+                  <span>{image.original}</span>
+                  <button onClick={() => chooseFiles(image.original)}>补图</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {uploadFailed.length > 0 && (
+            <div className="copy-error" role="status">
+              <span>图片上传失败，本地图片已保留</span>
+              <button onClick={() => void uploadImages(uploadFailed)}>重试上传</button>
+            </div>
+          )}
           <div className="input-bottom">
-            <span>支持粘贴 Markdown · 拖入或粘贴图片</span>
+            <span>
+              {uploading > 0
+                ? `正在上传 ${uploading} 张图片…`
+                : '图片可粘贴或拖入 · 上传后保留 7 天'}
+            </span>
             <span>{result?.stats.visibleTextChars ?? 0} 可见字</span>
           </div>
         </section>
@@ -537,21 +586,23 @@ export default function Workspace() {
             <span>
               成品预览 <span className="review-label"> / LIVE PREVIEW</span>
             </span>
-            <small>375 px · 手机阅读</small>
+            <div className="preview-modes" aria-label="预览宽度">
+              <button aria-pressed={!mobilePreview} onClick={() => setMobilePreview(false)}>
+                自适应
+              </button>
+              <button aria-pressed={mobilePreview} onClick={() => setMobilePreview(true)}>
+                手机
+              </button>
+            </div>
           </div>
           <div className="preview-scroll">
             {doc.markdown ? (
-              <div className="preview-paper">
+              <div className={`preview-paper ${mobilePreview ? 'mobile-preview' : 'wide-preview'}`}>
                 <iframe
                   ref={frame}
                   title="文章成品预览"
                   sandbox="allow-same-origin"
                   srcDoc={preview}
-                  onLoad={() => {
-                    const f = frame.current;
-                    if (f?.contentDocument)
-                      f.style.height = `${f.contentDocument.documentElement.scrollHeight}px`;
-                  }}
                 />
               </div>
             ) : (
@@ -561,11 +612,6 @@ export default function Workspace() {
                 <small>成品会呈现在这里</small>
               </div>
             )}
-          </div>
-          <div className="preview-caption">
-            {doc.platform === 'wechat'
-              ? '公众号样式预览 · 粘贴后请在平台核对图片与格式'
-              : '知乎结构预览 · 装饰样式将移除，最终外观以知乎为准'}
           </div>
         </section>
         <aside className={`settings ${settings ? 'open' : ''}`}>
@@ -685,53 +731,12 @@ export default function Workspace() {
               复制正文时不包含封面。
             </p>
           </div>
-          <div>
-            <h3>复制前检查</h3>
-            <p style={{ color: missing.length ? '#a47735' : '#73856a' }}>
-              {missing.length
-                ? `${missing.length} 张图片缺失`
-                : `${result?.images.length || 0} 张正文图片`}
-            </p>
-            <p>
-              {doc.platform === 'wechat'
-                ? `预计内嵌 ${localImages.length} 张 · 上传 0 张`
-                : `内嵌 0 张 · 将上传 ${localImages.length} 张`}
-              <br />
-              {remoteImages.length} 个远程地址{doc.platform === 'wechat' ? '将尝试内嵌' : ''}
-            </p>
-            {remoteImages.length > 0 && (
-              <button className="quiet" onClick={() => setModal('images')}>
-                核对或替换远程图片 ↗
-              </button>
-            )}
-            <p>
-              {doc.platform === 'wechat' && (
-                <>
-                  <span className={(result?.stats.htmlChars || 0) >= 20000 ? 'error-message' : ''}>
-                    接口 HTML 预估：{result?.stats.htmlChars || 0} / 20,000 字符
-                  </span>
-                  <br />
-                </>
-              )}
-              剪贴板：{copySize ? `${(copySize / 1024).toFixed(1)} KB` : '复制后显示实际体积'}
-              <br />
-              接口长度限制不用于剪贴板。
-            </p>
-            <div className="diagnostics">
-              {[...(result?.warnings || []), ...(result?.degraded || [])]
-                .filter((w) => w.code !== 'IMAGE_MISSING')
-                .map((w, i) => (
-                  <p key={i}>{w.message}</p>
-                ))}
-            </div>
-          </div>
         </aside>
       </div>
       <div className="statusbar">
         <span>
           <b>●</b> {storageStatus}
         </span>
-        <span>复制的是正文；标题、封面需在目标平台单独填写。</span>
         <span>JINZHANG / WEB</span>
       </div>
       <dialog
@@ -743,63 +748,6 @@ export default function Workspace() {
         }}
       >
         <div className="eyebrow">JINZHANG</div>
-        {modal === 'upload' && (
-          <>
-            <h2>复制前，确认图片中转</h2>
-            <p>
-              为让知乎读取正文图片，本次将临时上传以下 {localImages.length}{' '}
-              张图片。正文不会上传至锦章服务端。
-            </p>
-            <div className="image-list">
-              {unique(localImages).map((i) => (
-                <div className="image-item" key={i.id}>
-                  <img src={imageUrls[i.original]} alt="待上传图片" />
-                  <span>
-                    {i.original}
-                    <br />
-                    {'bytes' in i.source
-                      ? `${(i.source.bytes.length / 1024).toFixed(1)} KB 原图`
-                      : ''}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className="modal-info">
-              图片链接 7 天后失效。
-              <br />
-              中转图片按生命周期规则清理，不承诺到期即时删除。
-            </div>
-            <p>粘贴到知乎后，请等待图片转存完成并核对。</p>
-            <div className="modal-actions">
-              <button onClick={() => setModal(null)}>取消</button>
-              <button className="primary" onClick={executeCopy}>
-                上传并复制
-              </button>
-            </div>
-          </>
-        )}
-        {modal === 'images' && (
-          <>
-            <h2>补齐文章里的图片</h2>
-            <p>请选择每个引用对应的文件。相同文件名不会自动关联到其他目录。</p>
-            <div className="image-list">
-              {unique([...(result?.images || [])]).map((i) => (
-                <div className="image-item" key={i.id}>
-                  {imageUrls[i.original] && <img src={imageUrls[i.original]} alt="正文图片" />}
-                  <span>
-                    {i.original}
-                    <br />
-                    {i.source.kind === 'missing' ? '图片缺失' : '可替换为本地图片'}
-                  </span>
-                  <button onClick={() => chooseFiles(i.original)}>选择文件</button>
-                </div>
-              ))}
-            </div>
-            <div className="modal-actions">
-              <button onClick={() => setModal(null)}>完成</button>
-            </div>
-          </>
-        )}
         {modal === 'cover' && (
           <>
             <h2>选择预览封面</h2>
@@ -829,50 +777,6 @@ export default function Workspace() {
                 恢复正文首图
               </button>
               <button onClick={() => setModal(null)}>取消</button>
-            </div>
-          </>
-        )}
-        {modal === 'copy' && (
-          <>
-            <h2>
-              {copyPhase === 'success'
-                ? '正文已复制'
-                : copyPhase === 'ready'
-                  ? '已准备，可重试复制'
-                  : copyPhase === 'stale'
-                    ? '请重新复制'
-                    : '复制正文'}
-            </h2>
-            <p role="status">{message}</p>
-            {copySize && (
-              <p>
-                剪贴板实际体积：{(copySize / 1024).toFixed(1)} KB
-                <br />
-                已内嵌 {currentJob.current?.store.counts.embedded || 0} 张 · 已上传{' '}
-                {currentJob.current?.store.counts.uploaded || 0} 张 · 保留远程地址{' '}
-                {currentJob.current?.store.counts.remote || 0} 个
-              </p>
-            )}
-            {copyPhase === 'ready' && (
-              <p>
-                也可全选预览正文后按 ⌘C /
-                Ctrl+C。此方式可能降级，请在平台核对格式与图片；纯文本不保留完整排版。
-              </p>
-            )}
-            <div className="modal-actions">
-              <button onClick={() => setModal(null)}>{busy ? '后台继续' : '关闭'}</button>
-              {copyPhase === 'ready' && (
-                <button onClick={() => void selectPreview()}>全选预览区正文</button>
-              )}
-              {['ready', 'failed', 'stale'].includes(copyPhase) && (
-                <button
-                  className="primary"
-                  disabled={!result || busy}
-                  onClick={copyPhase === 'stale' ? beginCopy : executeCopy}
-                >
-                  重新复制
-                </button>
-              )}
             </div>
           </>
         )}

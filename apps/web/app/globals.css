@@ -523,7 +523,7 @@ footer {
   justify-content: space-between;
 }
 .preview-panel {
-  background: #efefe9;
+  background: #ffffff;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1041,14 +1041,84 @@ body {
 }
 .preview-paper iframe {
   height: 100%;
-  min-height: 850px;
+  min-height: 0;
 }
 .preview-scroll {
-  height: calc(100vh - 226px);
+  height: calc(100vh - 185px);
   min-height: 540px;
+  padding: 0 12px;
+  overflow: hidden;
 }
 .preview-paper {
-  min-height: 850px;
+  height: 100%;
+  min-height: 0;
+}
+.preview-paper.wide-preview {
+  width: 100%;
+  max-width: 860px;
+  box-shadow: none;
+}
+.preview-paper.mobile-preview {
+  width: 375px;
+}
+.preview-modes {
+  display: flex;
+  gap: 3px;
+  font-size: 11px;
+}
+.preview-modes button {
+  padding: 4px 8px;
+  border: 0;
+  color: #777;
+  background: transparent;
+}
+.preview-modes button[aria-pressed='true'] {
+  background: #f1f2f3;
+  color: #292d29;
+  border-radius: 5px;
+}
+.toast {
+  position: fixed;
+  bottom: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #292d29;
+  color: #fff;
+  padding: 9px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  z-index: 50;
+}
+.copy-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 18px;
+  font-size: 12px;
+  color: #a04435;
+}
+.copy-error button,
+.missing-images button {
+  padding: 4px 9px;
+  font-size: 12px;
+}
+.missing-images {
+  padding: 8px 16px;
+  max-height: 120px;
+  overflow: auto;
+}
+.missing-images > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  padding: 3px 0;
+}
+.missing-images span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .settings {
   overflow: auto;
@@ -1126,8 +1196,10 @@ body {
 .preview-caption {
   font-size: 11px;
 }
-.title-field input:focus {
-  outline: 1px solid var(--line);
+.title-field input:focus,
+.editor:focus {
+  outline: none;
+  box-shadow: none;
 }
 .settings-toggle {
   white-space: nowrap;
@@ -1146,8 +1218,8 @@ body {
 }
 button:focus-visible,
 a:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
+input:not(.title-field input):focus-visible,
+textarea:not(.editor):focus-visible,
 select:focus-visible {
   outline: 2px solid var(--red);
   outline-offset: 3px;
@@ -1171,7 +1243,7 @@ select:focus-visible {
     min-height: 330px;
   }
   .preview-paper {
-    min-height: 850px;
+    min-height: 0;
   }
   .toolbar-group .primary {
     margin-left: auto;
