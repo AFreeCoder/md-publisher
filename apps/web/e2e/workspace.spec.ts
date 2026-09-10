@@ -259,3 +259,44 @@ test('十张透明图片形成约 5 MB 富文本载荷，Chrome 剪贴板保留�
   expect(payload.size).toBeGreaterThan(4 * 1024 * 1024);
   expect(payload.size).toBeLessThan(8 * 1024 * 1024);
 });
+
+test('旧复制任务晚失败不能覆盖新任务进度', async ({ page }) => {
+  await page.goto('/format');
+  await page.evaluate(() => {
+    let calls = 0;
+    Object.defineProperty(navigator.clipboard, 'write', {
+      configurable: true,
+      value: () => {
+        const call = ++calls;
+        return new Promise<void>((resolve, reject) => {
+          window.addEventListener(
+            `finish-copy-${call}`,
+            () => {
+              if (call === 1) reject(new DOMException('Denied', 'NotAllowedError'));
+              else resolve();
+            },
+            { once: true },
+          );
+        });
+      },
+    });
+  });
+  const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
+  const copy = page.getByRole('button', { name: '复制到公众号 ↗' });
+  await editor.fill('旧稿');
+  await copy.click();
+  await page.getByRole('button', { name: '后台继续' }).click();
+  await editor.fill('新稿');
+  await expect(page.frameLocator('iframe').locator('article')).toContainText('新稿');
+  await copy.click();
+  await page.evaluate(async () => {
+    window.dispatchEvent(new Event('finish-copy-1'));
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  });
+  await expect(copy).toBeDisabled();
+  await expect(page.getByRole('dialog')).not.toContainText('文章或设置已变化');
+  await page.evaluate(() => window.dispatchEvent(new Event('finish-copy-2')));
+  await expect(page.getByRole('heading', { name: '正文已复制' })).toBeVisible();
+});

@@ -328,29 +328,21 @@ export default function Workspace() {
           setNotice(selected.store.warnings.map((w) => w.message).join(' '));
         setBusy(false);
       })
-      .catch(async (error) => {
-        if (token !== version.current.current()) {
-          setCopyPhase('stale');
-          setMessage('文章或设置已变化，请重新复制。');
-          setBusy(false);
-          return;
-        }
+      .catch(async () => {
+        // 改稿时已同步提示任务失效；旧回调不能覆盖之后开始的新任务。
+        if (token !== version.current.current()) return;
         try {
           await selected.payload;
           version.current.assert(token);
           setCopyPhase('ready');
           setMessage('已准备，可重试复制；图片不会重复上传。');
         } catch (problem) {
-          if (token !== version.current.current()) {
-            setCopyPhase('stale');
-            setMessage('文章已变化，请重新复制。');
-          } else {
-            currentJob.current = undefined;
-            setCopyPhase('failed');
-            setMessage(problem instanceof Error ? problem.message : '图片准备失败，请重试。');
-          }
+          if (token !== version.current.current()) return;
+          currentJob.current = undefined;
+          setCopyPhase('failed');
+          setMessage(problem instanceof Error ? problem.message : '图片准备失败，请重试。');
         } finally {
-          setBusy(false);
+          if (token === version.current.current()) setBusy(false);
         }
       });
   }
