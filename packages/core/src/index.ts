@@ -62,6 +62,24 @@ async function parse(markdown: string, warnings: Warning[]): Promise<Root> {
     .use(remarkGfm)
     .use(remarkDirective)
     .use(() => (tree) => {
+      visit(tree, 'link', (node: any, index, parent: any) => {
+        if (index === undefined || !parent || !node.position) return;
+        const source = markdown.slice(node.position.start.offset, node.position.end.offset);
+        // 仅修正裸网址的句尾中文标点，保留用户显式指定的链接目标。
+        if (
+          !/^https?:\/\//i.test(source) ||
+          node.children.length !== 1 ||
+          node.children[0].value !== source
+        )
+          return;
+        const suffix = source.match(/[，。；：！？、]+$/)?.[0];
+        if (!suffix) return;
+        const url = source.slice(0, -suffix.length);
+        node.url = url;
+        node.children[0].value = url;
+        parent.children.splice(index + 1, 0, { type: 'text', value: suffix });
+        return index + 2;
+      });
       visit(tree, (node: any) => {
         if (!/Directive$/.test(node.type)) return;
         if (node.name === 'divider') {

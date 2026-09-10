@@ -8,6 +8,18 @@ const resolver: AssetResolver = {
 const make = async (markdown: string, platform: 'wechat' | 'zhihu' = 'wechat', title = '') =>
   prepare({ markdown, title }, { platform, fixed: { header: false, footer: false }, resolver });
 describe('共享渲染', () => {
+  it('裸网址末尾中文句读留在正文，显式链接目标保持原样', async () => {
+    const source =
+      '网址：https://github.com/。\n\nhttps://example.test/路径！？\n\n[显式链接](https://example.test/。)';
+    for (const platform of ['wechat', 'zhihu'] as const) {
+      const { html, text } = render(await make(source, platform));
+      expect(html).toContain('href="https://github.com/"');
+      expect(html).toContain('href="https://example.test/%E8%B7%AF%E5%BE%84"');
+      expect(text).toContain('https://github.com/。');
+      expect(text).toContain('https://example.test/路径！？');
+      expect(html).toContain('href="https://example.test/%E3%80%82"');
+    }
+  });
   it('清理恶意 HTML 与协议，收集原始 HTML 图片', async () => {
     const p = await make(
       '<script>alert(1)</script><img src="./a.png" onerror="alert(2)"><iframe src="https://evil.test"></iframe>\n\n[x](javascript:alert)',
