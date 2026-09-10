@@ -96,6 +96,12 @@ describe('精确补图重写', () => {
 });
 
 describe('平台规则补充', () => {
+  it('知乎相邻代码围栏保留独立边界与语言，避免保存草稿后合并', async () => {
+    const markdown = '```typescript\nconst x = 1;\n```\n\n```json\n{"x":1}\n```';
+    const html = render(await make(markdown, 'zhihu')).html;
+    expect(html).toContain('</pre><p><br></p><pre lang="json">');
+    expect(html).toContain('<pre lang="typescript">const x = 1;\n</pre>');
+  });
   it('知乎脚注包含内容与链接，移除文末脚注列表', async () => {
     const r = render(await make('正文[^1]\n\n[^1]: 参考 [出处](https://example.test)', 'zhihu'));
     expect(r.html).toContain('data-text="参考 出处"');

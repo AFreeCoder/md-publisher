@@ -424,6 +424,17 @@ export function render(prepared: PreparedArticle, opts: { theme?: ThemeId } = {}
         unwrap(node);
         return allowed.has(node.tagName) ? [node] : node.children;
       }) as Element['children'];
+      // 知乎保存草稿时会合并相邻 pre；用空段落保留 Markdown 代码围栏边界。
+      let previous: RootContent | undefined;
+      parent.children = parent.children.flatMap((node) => {
+        const adjacentCode =
+          node.type === 'element' &&
+          node.tagName === 'pre' &&
+          previous?.type === 'element' &&
+          previous.tagName === 'pre';
+        if (node.type !== 'text' || node.value.trim()) previous = node;
+        return adjacentCode ? [element('p', [element('br')]), node] : [node];
+      }) as Element['children'];
     };
     unwrap(tree);
   }
