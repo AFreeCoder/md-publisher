@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { moveRange, replaceEditorText, dropOffset, type EditRange } from '../../lib/editor';
 import {
   useEffect,
   useRef,
@@ -73,6 +74,7 @@ export default function Workspace() {
   const fileInput = useRef<HTMLInputElement>(null);
   const replaceRef = useRef<string | undefined>(undefined);
   const insertion = useRef<[number, number]>([0, 0]);
+  const pendingInsertions = useRef(new Set<EditRange>());
   const frame = useRef<HTMLIFrameElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
@@ -82,6 +84,9 @@ export default function Workspace() {
   const inputOnly = useRef(false);
   const fixed = doc.fixed[doc.platform];
   function update(change: Partial<DocumentState>, isInput = false) {
+    if (change.markdown !== undefined)
+      for (const range of pendingInsertions.current)
+        moveRange(range, docRef.current.markdown, change.markdown);
     inputOnly.current = isInput;
     version.current.change();
     controller.current?.abort();
@@ -254,7 +259,8 @@ export default function Workspace() {
     }
   }, [modal]);
   async function insertFiles(files: FileList | File[], binding?: string) {
-    const token = version.current.current();
+    const range = { start: insertion.current[0], end: insertion.current[1] };
+    pendingInsertions.current.add(range);
     try {
       const selected = Array.from(files);
       if (!selected.length) return;
@@ -264,28 +270,28 @@ export default function Workspace() {
         const ref = await resolver.current.add(file, binding);
         refs.push(ref);
       }
-      version.current.assert(token);
+      if (!pendingInsertions.current.has(range)) return;
+      pendingInsertions.current.delete(range);
       let markdown = docRef.current.markdown;
       if (binding) {
         // 只替换用户指定的引用，同名文件不自动关联。
         markdown = replaceImageReference(markdown, binding, refs[0]);
         preparedCache.current = undefined;
       } else {
-        const [start, end] = insertion.current;
+        const { start, end } = range;
         const content = refs
           .map((ref, i) => `![${selected[i].name.replace(/[\[\]\n]/g, '')}](${ref})`)
           .join('\n');
         markdown = markdown.slice(0, start) + '\n' + content + '\n' + markdown.slice(end);
       }
-      update({
-        markdown,
-        cover: binding && docRef.current.cover === binding ? refs[0] : docRef.current.cover,
-      });
+      if (editor.current) replaceEditorText(editor.current, markdown);
+      if (docRef.current.markdown !== markdown) update({ markdown });
       void uploadImages(refs);
       editor.current?.focus();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : '图片保存失败。');
     } finally {
+      pendingInsertions.current.delete(range);
       if (fileInput.current) fileInput.current.value = '';
       replaceRef.current = undefined;
     }
@@ -305,11 +311,13 @@ export default function Workspace() {
   function onDrop(event: DragEvent<HTMLTextAreaElement>) {
     if (event.dataTransfer.files.length) {
       event.preventDefault();
-      insertion.current = [event.currentTarget.selectionStart, event.currentTarget.selectionEnd];
+      const offset = dropOffset(event.currentTarget, event.clientX, event.clientY);
+      insertion.current = [offset, offset];
       void insertFiles(event.dataTransfer.files);
     }
   }
   function loadExample() {
+    pendingInsertions.current.clear();
     update({ markdown: sampleMarkdown, title: '把写作还给写作' });
     setNotice('已载入示例。也可以拖入自己的图片。');
     setModal(null);
@@ -415,6 +423,7 @@ export default function Workspace() {
     }, 100);
   }
   async function clearLocal() {
+    pendingInsertions.current.clear();
     uploadGeneration.current++;
     version.current.change();
     controller.current?.abort();

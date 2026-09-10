@@ -1,6 +1,73 @@
 import { test, expect } from '@playwright/test';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 const fixture = path.resolve('fixtures/sample.png');
+test('图片处理期间继续打字，插入后光标与原生撤销重做正常', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = window.createImageBitmap.bind(window);
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    (window as any).releaseImage = release;
+    let first = true;
+    window.createImageBitmap = (async (...args: any[]) => {
+      if (first) {
+        first = false;
+        (window as any).imageWaiting = true;
+        await waiting;
+      }
+      return (original as any)(...args);
+    }) as typeof createImageBitmap;
+  });
+  await page.goto('/format');
+  const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
+  await editor.fill('前文\n后文');
+  await editor.press('Home');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: '＋ 插入图片' }).click();
+  await (await chooser).setFiles(fixture);
+  await expect.poll(() => page.evaluate(() => (window as any).imageWaiting)).toBe(true);
+  await editor.focus();
+  await editor.press('ArrowUp');
+  await editor.press('Home');
+  await page.keyboard.insertText('新增前文\n');
+  await page.evaluate(() => (window as any).releaseImage());
+  await expect(editor).toHaveValue(/^新增前文\n前文\n\n!\[.*\]\(jz-local:.*\)\n后文$/);
+  const inserted = await editor.inputValue();
+  expect(await editor.evaluate((el: HTMLTextAreaElement) => el.selectionStart)).toBe(
+    inserted.length - 2,
+  );
+  await editor.press('ControlOrMeta+z');
+  await expect(editor).toHaveValue('新增前文\n前文\n后文');
+  await editor.press('ControlOrMeta+Shift+z');
+  await expect(editor).toHaveValue(inserted);
+});
+test('拖图插入鼠标落点而不是旧光标位置', async ({ page }) => {
+  await page.goto('/format');
+  const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
+  await editor.fill('第一行\n第二行\n第三行\n第四行');
+  await editor.press('ControlOrMeta+Home');
+  const bytes = Array.from(await readFile(fixture));
+  await editor.evaluate((el: HTMLTextAreaElement, bytes) => {
+    const rect = el.getBoundingClientRect();
+    const css = getComputedStyle(el);
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(new File([new Uint8Array(bytes)], 'drop.png', { type: 'image/png' }));
+    el.dispatchEvent(
+      new DragEvent('drop', {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer,
+        clientX: rect.left + parseFloat(css.paddingLeft) + 1,
+        clientY: rect.top + parseFloat(css.paddingTop) + parseFloat(css.lineHeight) * 2.5,
+      }),
+    );
+  }, bytes);
+  await expect(editor).toHaveValue(
+    /^第一行\n第二行\n\n!\[drop.png\]\(jz-local:.*\)\n第三行\n第四行$/,
+  );
+});
 test('光标插图即时上传，失败可重试，切平台与刷新复用图片', async ({ page }) => {
   await page.goto('/format');
   const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
