@@ -1,0 +1,9 @@
+prototypes/
+pnpm-lock.yaml
+**/generated.ts
+**/__snapshots__/
+.browser-audit/
+**/.next/
+**/dist/
+node_modules/
+test-results/

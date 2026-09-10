@@ -1,0 +1,131 @@
+.jz {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  font-size: 15px;
+  line-height: 1.9;
+  color: #343a34;
+  word-wrap: break-word;
+}
+.jz p {
+  margin: 16px 0;
+}
+.jz h1 {
+  font-size: 23px;
+  line-height: 1.5;
+  margin: 28px 0 18px;
+  font-weight: 600;
+}
+.jz h2 {
+  font-size: 19px;
+  color: #ac493a;
+  margin: 28px 0 18px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e6e5df;
+}
+.jz h3 {
+  font-size: 17px;
+  color: #ac493a;
+  margin: 23px 0 14px;
+}
+.jz h4,
+.jz h5,
+.jz h6 {
+  font-size: 16px;
+  margin: 20px 0 12px;
+}
+.jz strong {
+  font-weight: 600;
+  color: #ac493a;
+}
+.jz a {
+  color: #ac493a;
+  text-decoration: underline;
+}
+.jz blockquote {
+  margin: 22px 0;
+  padding: 8px 16px;
+  border-left: 3px solid #ac493a;
+  background: #f7f7f4;
+  color: #70766a;
+}
+.jz pre {
+  font-family: Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre;
+  word-wrap: normal;
+  padding: 18px;
+  background: #f5f6f5;
+  color: #39443f;
+}
+.jz code {
+  font-family: Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+.jz ul,
+.jz ol {
+  padding-left: 24px;
+  margin: 16px 0;
+}
+.jz li {
+  margin: 7px 0;
+}
+.jz img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 20px auto;
+}
+.jz table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 13px;
+  margin: 18px 0;
+}
+.jz th {
+  background: #f2f3f0;
+  font-weight: 600;
+}
+.jz hr {
+  border: 0;
+  border-top: 1px solid #dfdfd8;
+  margin: 28px 0;
+}
+.jz sup {
+  font-size: 11px;
+  color: #ac493a;
+}
+.jz .hljs-keyword,
+.jz .hljs-selector-tag {
+  color: #a04b57;
+}
+.jz .hljs-string,
+.jz .hljs-attr {
+  color: #58775b;
+}
+.jz .hljs-number,
+.jz .hljs-literal {
+  color: #ab7245;
+}
+.jz .hljs-comment {
+  color: #90948d;
+}
+.jz .hljs-title,
+.jz .hljs-built_in {
+  color: #4f6f91;
+}
+
+.jz .jz-header {
+  font-size: 12px;
+  letter-spacing: 1px;
+  margin: 24px 0;
+  color: #8a7162;
+}
+.jz .jz-header p {
+  margin: 6px 0;
+}
+.jz .jz-footer {
+  font-size: 12px;
+  text-align: center;
+  color: #89917f;
+  margin: 28px 0;
+}

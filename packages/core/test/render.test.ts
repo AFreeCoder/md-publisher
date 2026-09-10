@@ -1,0 +1,123 @@
+import { describe, it, expect } from 'vitest';
+import { prepare, render, placeImages, template, themes } from '../src/index';
+import type { AssetResolver } from '../src/types';
+const resolver: AssetResolver = {
+  resolve: async (ref) =>
+    ref.startsWith('https:') ? { kind: 'remote', url: ref } : { kind: 'missing', reason: '缺图' },
+};
+const make = async (markdown: string, platform: 'wechat' | 'zhihu' = 'wechat', title = '') =>
+  prepare({ markdown, title }, { platform, fixed: { header: false, footer: false }, resolver });
+describe('共享渲染', () => {
+  it('清理恶意 HTML 与协议，收集原始 HTML 图片', async () => {
+    const p = await make(
+      '<script>alert(1)</script><img src="./a.png" onerror="alert(2)"><iframe src="https://evil.test"></iframe>\n\n[x](javascript:alert)',
+    );
+    const r = render(p);
+    expect(r.html).not.toMatch(/<script|onerror|<iframe|javascript:/);
+    expect(r.images).toHaveLength(1);
+    expect(r.warnings.some((w) => w.code === 'HTML_STRIPPED')).toBe(true);
+  });
+  it('不自动把 H1 当标题，明确相同标题时才移除首个 H1', async () => {
+    expect(render(await make('# 一级标题')).html).toContain('<h1');
+    expect(render(await make('# 一级标题', 'wechat', '一级标题')).html).not.toContain('<h1');
+  });
+  it('去 frontmatter、私有语法警告、缺变量删整行', async () => {
+    expect(
+      render(await make('---\ntitle: 私有\n---\n\n正文 [[双链]]')).warnings.map((w) => w.code),
+    ).toEqual(expect.arrayContaining(['FRONTMATTER_IGNORED', 'UNSUPPORTED_SYNTAX']));
+    expect(template('作者 {{author}}\n标题 {{title}}', { author: '某人' })).toBe('作者 某人');
+  });
+  it('固定开头首图不成为默认封面', async () => {
+    const p = await prepare(
+      { markdown: '![正文](body.png)', title: '', templates: { header: '![开头](header.png)' } },
+      { platform: 'wechat', fixed: { header: true, footer: false }, resolver },
+    );
+    expect(p.images).toHaveLength(2);
+    expect(p.cover?.original).toBe('body.png');
+  });
+  it('知乎不含主题 style，降级深标题、转换代码与表格', async () => {
+    const p = await make(
+      '#### 深标题\n\n```js\nconst x = 1;\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |',
+      'zhihu',
+    );
+    const r = render(p);
+    expect(r.html).not.toContain('style=');
+    expect(r.html).toContain('<p><strong>深标题');
+    expect(r.html).toContain('lang="js"');
+    expect(r.html).toContain('data-draft-type="table"');
+    expect(r.degraded).toHaveLength(1);
+  });
+  it('公众号任务列表、代码、三套主题输出稳定', async () => {
+    const p = await make(
+      '## 标题\n\n- [x] 完成\n- [ ] 未完成\n\n```js\n  const x = 1;\n  console.log(x);\n```',
+    );
+    for (const theme of themes) {
+      const r = render(p, { theme: theme.id });
+      expect(r.html).not.toContain('<input');
+      expect(r.html).toContain('☑');
+      expect(r.html).toContain('overflow-x:auto');
+      expect(r.html).not.toContain('class=');
+      expect(r.html).toContain('<br>');
+      expect(r.html).toMatchSnapshot(theme.id);
+    }
+  });
+  it('图片归位只替换 src，占位相似正文不被改变', async () => {
+    const r = render(await make('jz-img:0\n\n![x](https://example.test/a.png)'));
+    const p = await placeImages(r, { put: async () => ({ src: 'https://cdn.test/a?x=1&y=2' }) });
+    expect(p.html).toContain('jz-img:0');
+    expect(p.html).toContain('src="https://cdn.test/a?x=1&#x26;y=2"'.replace('&#x26;', '&amp;'));
+    expect(p.bytes).toBe(new TextEncoder().encode(p.html).byteLength);
+  });
+});
+
+describe('精确补图重写', () => {
+  it('相似路径、alt 和正文中的同名文本不被改动', async () => {
+    const { replaceImageReference } = await import('../src/references');
+    const source =
+      '文字 ./a.png\n\n![./a.png](./a.png)\n\n![其他](./a.png.backup)\n\n<img src="./a.png">';
+    const value = replaceImageReference(source, './a.png', 'jz-local://new');
+    expect(value).toContain('文字 ./a.png');
+    expect(value).toContain('![./a.png](<jz-local://new>)');
+    expect(value).toContain('(./a.png.backup)');
+    expect(value).toContain('src="jz-local://new"');
+  });
+});
+
+describe('平台规则补充', () => {
+  it('知乎脚注包含内容与链接，移除文末脚注列表', async () => {
+    const r = render(await make('正文[^1]\n\n[^1]: 参考 [出处](https://example.test)', 'zhihu'));
+    expect(r.html).toContain('data-text="参考 出处"');
+    expect(r.html).toContain('data-url="https://example.test"');
+    expect(r.html).not.toContain('Footnotes');
+  });
+  it('只保留允许的内联 CSS，知乎逐条报告样式降级', async () => {
+    const source =
+      '<p style="color:red;position:fixed;background-image:url(https://evil.test/x)">正文</p>';
+    const r = render(await make(source));
+    expect(r.html).toContain('color:red');
+    expect(r.html).not.toContain('position');
+    expect(r.html).not.toContain('evil.test');
+    const z = render(await make(source, 'zhihu'));
+    expect(z.html).not.toContain('style=');
+    expect(z.degraded[0].message).toContain('装饰样式');
+  });
+  it('公众号扁平化深层列表，强调后中文标点进入强调节点', async () => {
+    const r = render(await make('- 一级\n  - 二级\n\n**重点**。'));
+    expect(r.html.match(/<ul/g) || []).toHaveLength(1);
+    expect(r.html).toContain('• 二级');
+    expect(r.html).toContain('重点。</strong>');
+  });
+});
+
+describe('标准文章跨主题与平台基线', () => {
+  it('同一份 core 输入在各宿主中不依赖 DOM 或 Node 环境', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const source = await readFile(new URL('../../../fixtures/article.md', import.meta.url), 'utf8');
+    for (const platform of ['wechat', 'zhihu'] as const) {
+      const p = await make(source, platform, '标准验收文章');
+      for (const t of themes) {
+        expect(render(p, { theme: t.id }).html).toMatchSnapshot(`${platform}-${t.id}`);
+      }
+    }
+  });
+});

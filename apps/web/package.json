@@ -1,0 +1,23 @@
+{
+  "name": "@jinzhang/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --hostname 127.0.0.1 --port 3000",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1 --port 3000"
+  },
+  "dependencies": {
+    "@jinzhang/core": "workspace:*",
+    "ali-oss": "^6.23.0",
+    "next": "^16.3.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "sharp": "^0.35.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/ali-oss": "^6.23.3",
+    "tailwindcss": "^4.3.3"
+  }
+}

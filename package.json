@@ -1,0 +1,34 @@
+{
+  "name": "jinzhang",
+  "private": true,
+  "packageManager": "pnpm@10.29.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @jinzhang/core build && pnpm --parallel --filter @jinzhang/core --filter @jinzhang/web dev",
+    "build": "pnpm themes && pnpm --filter @jinzhang/core build && pnpm --filter @jinzhang/web build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm build && pnpm typecheck && pnpm test && pnpm check:boundary && pnpm check:core-build",
+    "themes": "node scripts/generate-themes.mjs",
+    "test:e2e": "playwright test",
+    "check:boundary": "node scripts/check-browser-boundary.mjs",
+    "check:core-build": "node scripts/check-core-build.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/css-tree": "^3.2.0",
+    "@types/hast": "^3.0.5",
+    "@types/mdast": "^4.0.4",
+    "@types/node": "^22.20.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "fake-indexeddb": "^6.2.5",
+    "prettier": "3.6.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0"
+  },
+  "type": "module"
+}
