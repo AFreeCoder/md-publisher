@@ -64,11 +64,26 @@ export function restoreDocument(raw: string | null): DocumentState {
   }
   return d;
 }
+export function normalizeCollectionLink(value: string): string | null {
+  const input = value.trim();
+  if (!input) return '';
+  try {
+    const url = new URL(/^[a-z][a-z\d+.-]*:/i.test(input) ? input : `https://${input}`);
+    if (
+      !['http:', 'https:'].includes(url.protocol) ||
+      /\s/.test(input) ||
+      !url.hostname.includes('.')
+    )
+      return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
 export function templates(f: FixedContent) {
   const safe = (s: string) => s.replace(/[\\`*_{}[\]()#+.!<>|]/g, '\\$&');
-  const collection = /^https?:\/\//.test(f.collection)
-    ? `\n[继续阅读](${f.collection.replace(/[()\s]/g, encodeURIComponent)})`
-    : '';
+  const link = normalizeCollectionLink(f.collection);
+  const collection = link ? `\n[继续阅读](${link.replace(/[()\s]/g, encodeURIComponent)})` : '';
   return {
     header: `${f.headerStyle === '留白分隔' ? '---\n' : ''}${safe(f.author)}\n\n${safe(f.slogan)}`,
     footer: `${f.footerStyle === '细线落款' ? '---\n' : ''}${safe(f.closing)}${collection}`,

@@ -37,6 +37,7 @@ import {
   STORAGE_KEY,
   templates,
   sampleMarkdown,
+  normalizeCollectionLink,
   type DocumentState,
   type FixedContent,
 } from '../../lib/document';
@@ -50,6 +51,8 @@ export default function Workspace() {
   const [result, setResult] = useState<RenderResult>();
   const [preview, setPreview] = useState('');
   const [notice, setNotice] = useState('');
+  const [missingCopy, setMissingCopy] = useState(false);
+  const [collectionError, setCollectionError] = useState(false);
   const [mobilePreview, setMobilePreview] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<string[]>([]);
   const [uploadFailed, setUploadFailed] = useState<string[]>([]);
@@ -91,6 +94,8 @@ export default function Workspace() {
     version.current.change();
     controller.current?.abort();
     setCopyPhase('idle');
+    setMissingCopy(false);
+    if (change.platform !== undefined) setCollectionError(false);
     setMessage('');
     currentJob.current = undefined;
     setCopySize(undefined);
@@ -101,6 +106,7 @@ export default function Workspace() {
     setDoc(next);
   }
   function updateFixed(change: Partial<FixedContent>) {
+    if (change.collection !== undefined) setCollectionError(false);
     update({ fixed: { ...doc.fixed, [doc.platform]: { ...fixed, ...change } } });
   }
   useEffect(() => {
@@ -208,6 +214,14 @@ export default function Workspace() {
       if (event.key === 'Escape' && moreMenu.current?.open) {
         moreMenu.current.removeAttribute('open');
         moreMenu.current.querySelector('summary')?.focus();
+      }
+      if (
+        event.key === 'Escape' &&
+        !dialog.current?.open &&
+        document.querySelector('.settings.open')
+      ) {
+        setSettings(false);
+        document.querySelector<HTMLButtonElement>('.settings-toggle')?.focus();
       }
     };
     document.addEventListener('pointerdown', onPointerDown);
@@ -325,7 +339,11 @@ export default function Workspace() {
   function beginCopy() {
     if (!result || !doc.markdown.trim()) return;
     if (result.images.some((i) => i.source.kind === 'missing')) {
+      setMissingCopy(true);
       document.querySelector('.missing-images')?.scrollIntoView({ block: 'nearest' });
+      document
+        .querySelector<HTMLButtonElement>('.missing-images button')
+        ?.focus({ preventScroll: true });
       return;
     }
     executeCopy();
@@ -492,7 +510,9 @@ export default function Workspace() {
                 ? '正在复制…'
                 : copyPhase === 'success'
                   ? '已复制 ✓'
-                  : `复制到${titleFor(doc.platform)} ↗`}
+                  : missingCopy
+                    ? '请先补齐图片'
+                    : `复制到${titleFor(doc.platform)} ↗`}
             </button>
           </div>
         </div>
@@ -733,10 +753,28 @@ export default function Workspace() {
                     type="text"
                     value={fixed[key]}
                     placeholder={key === 'collection' ? 'https://…' : ''}
+                    aria-invalid={(key === 'collection' && collectionError) || undefined}
+                    aria-describedby={
+                      key === 'collection' && collectionError ? 'collection-error' : undefined
+                    }
                     onChange={(e) => updateFixed({ [key]: e.target.value })}
+                    onBlur={
+                      key === 'collection'
+                        ? (e) => {
+                            const value = normalizeCollectionLink(e.target.value);
+                            if (value === null) setCollectionError(true);
+                            else setCollectionError(false);
+                          }
+                        : undefined
+                    }
                   />
                 </label>
               ))}
+              {collectionError && (
+                <p id="collection-error" role="alert">
+                  请输入有效的网页地址
+                </p>
+              )}
             </details>
             <p>每个平台单独保存，仅样式与文案。</p>
           </div>

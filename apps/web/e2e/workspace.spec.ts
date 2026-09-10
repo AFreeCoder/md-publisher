@@ -216,12 +216,33 @@ test('标题提取忽略代码，示例替换保留两个平台的个人设置',
   );
   await expect(page.getByRole('checkbox', { name: '文章开头', exact: true })).toBeChecked();
 });
+test('合集网址补全协议，无效输入就地反馈', async ({ page }) => {
+  await page.goto('/format');
+  await page.getByRole('textbox', { name: 'Markdown 原文' }).fill('正文');
+  await page.getByRole('checkbox', { name: '文章结尾', exact: true }).check();
+  await page.getByText('编辑固定文案 ↗', { exact: true }).click();
+  const link = page.getByRole('textbox', { name: '合集链接' });
+  await link.fill('javascript:alert(1)');
+  await link.press('Tab');
+  await expect(page.locator('#collection-error')).toHaveText('请输入有效的网页地址');
+  await expect(link).toHaveAttribute('aria-invalid', 'true');
+  await link.fill('example.com/collection');
+  await link.press('Tab');
+  await expect(page.locator('#collection-error')).toHaveCount(0);
+  await expect(page.frameLocator('iframe').getByRole('link', { name: '继续阅读' })).toHaveAttribute(
+    'href',
+    'https://example.com/collection',
+  );
+});
 test('补图、刷新恢复、真实富文本复制到两个平台、封面不进入正文', async ({ page }) => {
   await page.goto('/format');
   await page
     .getByRole('textbox', { name: 'Markdown 原文' })
     .fill('# 测试文章\n\n正文保留。\n\n![插图](./one/a.png)');
   await page.getByRole('button', { name: '用正文一级标题' }).click();
+  await page.getByRole('button', { name: '复制到公众号 ↗' }).click();
+  await expect(page.getByRole('button', { name: '请先补齐图片' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '补图', exact: true })).toBeFocused();
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: '补图', exact: true }).click();
   await (await chooser).setFiles(fixture);
@@ -288,6 +309,10 @@ test('两平台预览、移动布局和清除只作用于当前站点数据', as
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: '排版设置', exact: true }).click();
   await expect(page.getByRole('button', { name: '关闭设置 ×' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: '关闭设置 ×' })).not.toBeVisible();
+  await expect(page.getByRole('button', { name: '排版设置', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: '排版设置', exact: true }).click();
   await page.getByRole('button', { name: '关闭设置 ×' }).click();
   await page.getByText('···', { exact: true }).click();
   await page.getByRole('button', { name: '清除本地数据', exact: true }).click();
