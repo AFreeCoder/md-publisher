@@ -215,7 +215,7 @@ test('光标插图即时上传，失败可重试，切平台与刷新复用图�
     375,
   );
   await page.getByRole('button', { name: '手机', exact: true }).click();
-  expect(await page.locator('.preview-paper').evaluate((el) => el.clientWidth)).toBe(375);
+  await expect(page.locator('.preview-paper')).toHaveCSS('width', '420px');
 });
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/transit/sign', (route) =>
