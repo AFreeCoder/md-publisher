@@ -10,6 +10,11 @@ import { toHtml } from 'hast-util-to-html';
 import { toText } from 'hast-util-to-text';
 import { common, createLowlight } from 'lowlight';
 import type { Root, Element, RootContent } from 'hast';
+declare module 'hast' {
+  interface ElementData {
+    sourceLine?: number;
+  }
+}
 import type {
   ArticleInput,
   PrepareOptions,
@@ -137,6 +142,11 @@ export async function prepare(input: ArticleInput, opts: PrepareOptions): Promis
   if (input.title && Array.from(input.title).length > 32)
     warnings.push({ code: 'TITLE_TOO_LONG', message: '标题超过 32 字，请在平台核对展示效果。' });
   const body = await parse(source, warnings);
+  const lineOffset = input.markdown.split('\n').length - source.split('\n').length;
+  visit(body, 'element', (node) => {
+    if (node.position)
+      node.data = { ...node.data, sourceLine: node.position.start.line + lineOffset };
+  });
   const first = body.children.findIndex((n) => n.type === 'element' && n.tagName === 'h1');
   if (first >= 0 && input.title && toText(body.children[first]) === input.title)
     body.children.splice(first, 1);
@@ -352,7 +362,10 @@ function dialect(tree: Root, platform: 'wechat' | 'zhihu', degraded: Warning[]) 
     }
   });
 }
-export function render(prepared: PreparedArticle, opts: { theme?: ThemeId } = {}): RenderResult {
+export function render(
+  prepared: PreparedArticle,
+  opts: { theme?: ThemeId; sourceLocations?: boolean } = {},
+): RenderResult {
   const tree = structuredClone(prepared.tree);
   const degraded: Warning[] = [];
   dialect(tree, prepared.platform, degraded);
@@ -448,6 +461,11 @@ export function render(prepared: PreparedArticle, opts: { theme?: ThemeId } = {}
   }
   if (prepared.platform === 'wechat') compactStyles(tree);
   compact(tree, prepared.platform);
+  if (opts.sourceLocations)
+    visit(tree, 'element', (node) => {
+      if (node.data?.sourceLine && /^(p|h[1-6]|pre|table|li|blockquote|img)$/.test(node.tagName))
+        node.properties.dataSourceLine = node.data.sourceLine as number;
+    });
   let html = toHtml(tree);
   if (prepared.platform === 'zhihu') html = html.replace(/>\n+</g, '><');
   const text = toText(tree);

@@ -430,6 +430,60 @@ footer {
   position: relative;
   flex-shrink: 0;
 }
+.mobile-pane-tabs,
+.settings-backdrop {
+  display: none;
+}
+.fixed-fields {
+  padding: 8px 0 14px;
+}
+.fixed-fields label {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 12px;
+}
+.fixed-fields input[aria-invalid='true'] {
+  border-color: var(--red);
+}
+#collection-error {
+  color: var(--red);
+}
+@media (max-width: 1100px) {
+  .settings-backdrop {
+    display: block;
+    position: fixed;
+    inset: 60px 0 0;
+    z-index: 7;
+    background: #00000012;
+    border: 0;
+    border-radius: 0;
+  }
+}
+@media (max-width: 720px) {
+  .mobile-pane-tabs {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  .mobile-pane-tabs button {
+    border: 0;
+    background: transparent;
+    padding: 6px 28px;
+  }
+  .mobile-pane-tabs button[aria-pressed='true'] {
+    background: #f1f1f1;
+  }
+  .workspace.pane-editor .preview-panel,
+  .workspace.pane-preview .input-panel {
+    display: none;
+  }
+  .settings-backdrop {
+    top: 108px;
+  }
+}
 .workspace-menu summary {
   list-style: none;
   cursor: pointer;
@@ -1295,11 +1349,21 @@ select:focus-visible {
   .settings {
     top: 108px;
   }
+  .workspace {
+    height: calc(100dvh - 156px);
+    min-height: 0;
+  }
+  .input-panel,
+  .preview-panel {
+    min-height: 0;
+  }
   .preview-scroll {
-    height: 650px;
+    flex: 1;
+    height: auto;
+    min-height: 0;
   }
   .editor {
-    min-height: 330px;
+    min-height: 0;
   }
   .preview-paper {
     min-height: 0;

@@ -8,6 +8,16 @@ const resolver: AssetResolver = {
 const make = async (markdown: string, platform: 'wechat' | 'zhihu' = 'wechat', title = '') =>
   prepare({ markdown, title }, { platform, fixed: { header: false, footer: false }, resolver });
 describe('共享渲染', () => {
+  it('预览定位保留原文行号，复制内容不带定位标记', async () => {
+    const source = '---\nname: test\n---\n\n# 标题\n\n重复正文\n\n重复正文';
+    for (const platform of ['wechat', 'zhihu'] as const) {
+      const prepared = await make(source, platform, '标题');
+      const preview = render(prepared, { sourceLocations: true }).html;
+      expect(preview).toContain('data-source-line="7"');
+      expect(preview).toContain('data-source-line="9"');
+      expect(render(prepared).html).not.toContain('data-source-line');
+    }
+  });
   it('提取真实一级标题，忽略代码、引用和 frontmatter，保留标题可见文本', async () => {
     expect(
       await extractMarkdownTitle('```sh\n# 代码注释\n```\n\n    # 缩进代码\n\n> # 引用标题'),

@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { connectPreview } from '../../lib/preview-sync';
 import { moveRange, replaceEditorText, dropOffset, type EditRange } from '../../lib/editor';
 import {
   useEffect,
@@ -42,7 +43,7 @@ import {
   type FixedContent,
 } from '../../lib/document';
 const titleFor = (p: string) => (p === 'wechat' ? '公众号' : '知乎');
-type Modal = 'clear' | 'sample' | null;
+type Modal = 'clear' | 'sample' | 'new' | 'restore' | null;
 export default function Workspace() {
   const [doc, setDoc] = useState<DocumentState>(freshDocument);
   const docRef = useRef(doc);
@@ -54,6 +55,11 @@ export default function Workspace() {
   const [missingCopy, setMissingCopy] = useState(false);
   const [collectionError, setCollectionError] = useState(false);
   const [mobilePreview, setMobilePreview] = useState(false);
+  const [mobilePane, setMobilePane] = useState<'editor' | 'preview'>('editor');
+  const [previousArticle, setPreviousArticle] = useState<{
+    markdown: string;
+    title: string;
+  } | null>(null);
   const [pendingUploads, setPendingUploads] = useState<string[]>([]);
   const [uploadFailed, setUploadFailed] = useState<string[]>([]);
   const uploadGeneration = useRef(0);
@@ -79,6 +85,7 @@ export default function Workspace() {
   const insertion = useRef<[number, number]>([0, 0]);
   const pendingInsertions = useRef(new Set<EditRange>());
   const frame = useRef<HTMLIFrameElement>(null);
+  const disconnectPreview = useRef<() => void>(() => {});
   const dialog = useRef<HTMLDialogElement>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
   const moreMenu = useRef<HTMLDetailsElement>(null);
@@ -121,6 +128,13 @@ export default function Workspace() {
       setNotice('本地存储不可用或内容损坏，当前输入不会覆盖原数据。');
     }
     setReady(true);
+    try {
+      const previous = JSON.parse(localStorage.getItem('jinzhang.previous-article.v1') || 'null');
+      if (previous && typeof previous.markdown === 'string' && typeof previous.title === 'string')
+        setPreviousArticle(previous);
+    } catch {
+      /* 旧稿备份无效不阻塞当前文章。 */
+    }
     return () => controller.current?.abort();
   }, []);
   useEffect(() => {
@@ -177,7 +191,10 @@ export default function Workspace() {
             return { src };
           },
         };
-        const placed = await placeImages(output, store);
+        const placed = await placeImages(
+          render(prepared, { theme: doc.theme, sourceLocations: true }),
+          store,
+        );
         let html = placed.html;
         for (const image of output.images.filter((i) => i.source.kind === 'missing'))
           html = html.replace(
@@ -205,6 +222,7 @@ export default function Workspace() {
     };
   }, [doc, ready]);
   useEffect(() => () => urls.current.forEach(URL.revokeObjectURL), []);
+  useEffect(() => () => disconnectPreview.current(), []);
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
       if (event.target instanceof Node && !moreMenu.current?.contains(event.target))
@@ -331,10 +349,26 @@ export default function Workspace() {
     }
   }
   function loadExample() {
+    replaceArticle(sampleMarkdown, '把写作还给写作');
+  }
+  function replaceArticle(markdown: string, title: string) {
+    if (docRef.current.markdown || docRef.current.title) {
+      const previous = { markdown: docRef.current.markdown, title: docRef.current.title };
+      try {
+        localStorage.setItem('jinzhang.previous-article.v1', JSON.stringify(previous));
+      } catch {
+        setNotice('无法保留上一稿，请先复制原文。');
+        return;
+      }
+      setPreviousArticle(previous);
+    }
     pendingInsertions.current.clear();
-    update({ markdown: sampleMarkdown, title: '把写作还给写作' });
-    setNotice('已载入示例。也可以拖入自己的图片。');
+    update({ markdown, title, cover: '' });
+    setMobilePane('editor');
     setModal(null);
+  }
+  function restoreArticle() {
+    if (previousArticle) replaceArticle(previousArticle.markdown, previousArticle.title);
   }
   function beginCopy() {
     if (!result || !doc.markdown.trim()) return;
@@ -424,7 +458,12 @@ export default function Workspace() {
     } else {
       html = frame.current?.contentDocument?.querySelector('article')?.innerHTML || html;
     }
-    setPreview(previewDocument(result, html, { bodyOnly: true }));
+    const clean = new DOMParser().parseFromString(html, 'text/html');
+    clean
+      .querySelectorAll('[data-source-line]')
+      .forEach((node) => node.removeAttribute('data-source-line'));
+    setMobilePane('preview');
+    setPreview(previewDocument(result, clean.body.innerHTML, { bodyOnly: true }));
     setModal(null);
     setTimeout(() => {
       const d = frame.current?.contentDocument;
@@ -450,6 +489,8 @@ export default function Workspace() {
       clearTransitCache();
       setUploadFailed([]);
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem('jinzhang.previous-article.v1');
+      setPreviousArticle(null);
       allowSave.current = true;
       skipSave.current = true;
       preparedCache.current = undefined;
@@ -512,13 +553,27 @@ export default function Workspace() {
                   ? '已复制 ✓'
                   : missingCopy
                     ? '请先补齐图片'
-                    : `复制到${titleFor(doc.platform)} ↗`}
+                    : `复制到${titleFor(doc.platform)}`}
             </button>
           </div>
         </div>
         <details className="workspace-menu" ref={moreMenu}>
           <summary aria-label="更多操作">···</summary>
           <nav onClick={(event) => event.currentTarget.closest('details')?.removeAttribute('open')}>
+            <button
+              className="quiet"
+              onClick={() => (doc.markdown || doc.title ? setModal('new') : replaceArticle('', ''))}
+            >
+              新建文章
+            </button>
+            {previousArticle && (
+              <button
+                className="quiet"
+                onClick={() => (doc.markdown || doc.title ? setModal('restore') : restoreArticle())}
+              >
+                恢复上一稿
+              </button>
+            )}
             <button
               className="quiet"
               onClick={() => (doc.markdown ? setModal('sample') : loadExample())}
@@ -555,7 +610,15 @@ export default function Workspace() {
           </button>
         </div>
       )}
-      <div className="workspace">
+      <div className="mobile-pane-tabs" aria-label="工作区视图">
+        <button aria-pressed={mobilePane === 'editor'} onClick={() => setMobilePane('editor')}>
+          编辑
+        </button>
+        <button aria-pressed={mobilePane === 'preview'} onClick={() => setMobilePane('preview')}>
+          预览
+        </button>
+      </div>
+      <div className={`workspace pane-${mobilePane}`}>
         <section className="input-panel">
           <div className="panel-label">
             <span>Markdown 原文</span>
@@ -626,19 +689,13 @@ export default function Workspace() {
             </div>
           )}
           <div className="input-bottom">
-            <span>
-              {uploading > 0
-                ? `正在上传 ${uploading} 张图片…`
-                : '图片可粘贴或拖入 · 上传后保留 7 天'}
-            </span>
-            <span>{result?.stats.visibleTextChars ?? 0} 可见字</span>
+            <span>{uploading > 0 ? `正在上传 ${uploading} 张图片…` : ''}</span>
+            <span>{result?.stats.visibleTextChars ?? 0} 字</span>
           </div>
         </section>
         <section className="preview-panel">
           <div className="panel-label">
-            <span>
-              成品预览 <span className="review-label"> / LIVE PREVIEW</span>
-            </span>
+            <span>成品预览</span>
             <div className="preview-modes" aria-label="预览宽度">
               <button aria-pressed={!mobilePreview} onClick={() => setMobilePreview(false)}>
                 自适应
@@ -656,25 +713,39 @@ export default function Workspace() {
                   title="文章成品预览"
                   sandbox="allow-same-origin"
                   srcDoc={preview}
+                  onLoad={() => {
+                    disconnectPreview.current();
+                    if (editor.current && frame.current)
+                      disconnectPreview.current = connectPreview(
+                        editor.current,
+                        frame.current,
+                        () => setMobilePane('editor'),
+                      );
+                  }}
                 />
               </div>
             ) : (
               <div className="empty-state">
-                在左侧贴入 Markdown
+                贴入 Markdown，开始排版
                 <br />
                 <small>成品会呈现在这里</small>
               </div>
             )}
           </div>
         </section>
+        {settings && (
+          <button
+            className="settings-backdrop"
+            aria-label="收起排版设置"
+            onClick={() => setSettings(false)}
+          />
+        )}
         <aside className={`settings ${settings ? 'open' : ''}`}>
           <button className="settings-close quiet" onClick={() => setSettings(false)}>
             关闭设置 ×
           </button>
           <div className="settings-section">
-            <h3>
-              排版主题 <span className="review-label">01</span>
-            </h3>
+            <h3>排版主题</h3>
             {doc.platform === 'wechat' ? (
               <div className="theme-options">
                 {themes.map((t) => (
@@ -700,9 +771,7 @@ export default function Workspace() {
             )}
           </div>
           <div className="settings-section">
-            <h3>
-              固定内容 <span className="review-label">02</span>
-            </h3>
+            <h3>文章开头与结尾</h3>
             <label className="setting-line">
               文章开头
               <input
@@ -712,14 +781,33 @@ export default function Workspace() {
                 onChange={(e) => updateFixed({ header: e.target.checked })}
               />
             </label>
-            <select
-              aria-label="开头样式"
-              value={fixed.headerStyle}
-              onChange={(e) => updateFixed({ headerStyle: e.target.value })}
-            >
-              <option>简约署名</option>
-              <option>留白分隔</option>
-            </select>
+            {fixed.header && (
+              <div className="fixed-fields">
+                <select
+                  aria-label="开头样式"
+                  value={fixed.headerStyle}
+                  onChange={(e) => updateFixed({ headerStyle: e.target.value })}
+                >
+                  <option>简约署名</option>
+                  <option>留白分隔</option>
+                </select>
+                {(
+                  [
+                    ['author', '作者名'],
+                    ['slogan', '口号'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key}>
+                    {label}
+                    <input
+                      type="text"
+                      value={fixed[key]}
+                      onChange={(e) => updateFixed({ [key]: e.target.value })}
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
             <label className="setting-line">
               文章结尾
               <input
@@ -729,54 +817,52 @@ export default function Workspace() {
                 onChange={(e) => updateFixed({ footer: e.target.checked })}
               />
             </label>
-            <select
-              aria-label="结尾样式"
-              value={fixed.footerStyle}
-              onChange={(e) => updateFixed({ footerStyle: e.target.value })}
-            >
-              <option>一句寄语</option>
-              <option>细线落款</option>
-            </select>
-            <details className="fixed-fields">
-              <summary>编辑固定文案 ↗</summary>
-              {(
-                [
-                  ['author', '作者名'],
-                  ['slogan', '口号'],
-                  ['closing', '结尾话术'],
-                  ['collection', '合集链接'],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key}>
-                  {label}
-                  <input
-                    type="text"
-                    value={fixed[key]}
-                    placeholder={key === 'collection' ? 'https://…' : ''}
-                    aria-invalid={(key === 'collection' && collectionError) || undefined}
-                    aria-describedby={
-                      key === 'collection' && collectionError ? 'collection-error' : undefined
-                    }
-                    onChange={(e) => updateFixed({ [key]: e.target.value })}
-                    onBlur={
-                      key === 'collection'
-                        ? (e) => {
-                            const value = normalizeCollectionLink(e.target.value);
-                            if (value === null) setCollectionError(true);
-                            else setCollectionError(false);
-                          }
-                        : undefined
-                    }
-                  />
-                </label>
-              ))}
-              {collectionError && (
-                <p id="collection-error" role="alert">
-                  请输入有效的网页地址
-                </p>
-              )}
-            </details>
-            <p>每个平台单独保存，仅样式与文案。</p>
+            {fixed.footer && (
+              <div className="fixed-fields">
+                <select
+                  aria-label="结尾样式"
+                  value={fixed.footerStyle}
+                  onChange={(e) => updateFixed({ footerStyle: e.target.value })}
+                >
+                  <option>一句寄语</option>
+                  <option>细线落款</option>
+                </select>
+                {(
+                  [
+                    ['closing', '结尾话术'],
+                    ['collection', '合集链接'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label key={key}>
+                    {label}
+                    <input
+                      type="text"
+                      value={fixed[key]}
+                      placeholder={key === 'collection' ? 'https://…' : ''}
+                      aria-invalid={(key === 'collection' && collectionError) || undefined}
+                      aria-describedby={
+                        key === 'collection' && collectionError ? 'collection-error' : undefined
+                      }
+                      onChange={(e) => updateFixed({ [key]: e.target.value })}
+                      onBlur={
+                        key === 'collection'
+                          ? (e) => {
+                              const value = normalizeCollectionLink(e.target.value);
+                              if (value === null) setCollectionError(true);
+                              else setCollectionError(false);
+                            }
+                          : undefined
+                      }
+                    />
+                  </label>
+                ))}
+                {collectionError && (
+                  <p id="collection-error" role="alert">
+                    请输入有效的网页地址
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </aside>
       </div>
@@ -807,10 +893,25 @@ export default function Workspace() {
             </div>
           </>
         )}
+        {(modal === 'new' || modal === 'restore') && (
+          <>
+            <h2>{modal === 'new' ? '新建一篇文章？' : '恢复上一稿？'}</h2>
+            <p>当前文章会保留为上一稿，排版设置不变。</p>
+            <div className="modal-actions">
+              <button onClick={() => setModal(null)}>取消</button>
+              <button
+                className="primary"
+                onClick={() => (modal === 'new' ? replaceArticle('', '') : restoreArticle())}
+              >
+                {modal === 'new' ? '新建文章' : '恢复上一稿'}
+              </button>
+            </div>
+          </>
+        )}
         {modal === 'sample' && (
           <>
             <h2>用示例替换当前原文？</h2>
-            <p>将替换当前文章，平台与排版设置保留。请先保留需要的原文。</p>
+            <p>当前文章会保留为上一稿，平台与排版设置不变。</p>
             <div className="modal-actions">
               <button onClick={() => setModal(null)}>取消</button>
               <button className="primary" onClick={loadExample}>

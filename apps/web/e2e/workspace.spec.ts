@@ -2,6 +2,75 @@ import { test, expect } from '@playwright/test';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 const fixture = path.resolve('fixtures/sample.png');
+test('新建保留设置与上一稿，刷新后恢复，取消不丢内容', async ({ page }) => {
+  await page.goto('/format');
+  const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
+  await editor.fill('需要保留的文章');
+  await page.getByRole('button', { name: 'Mac', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: '作者名', exact: true })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: '文章开头', exact: true }).check();
+  await page.getByRole('textbox', { name: '作者名', exact: true }).fill('我的署名');
+  await page.getByRole('checkbox', { name: '文章开头', exact: true }).uncheck();
+  await expect(page.getByRole('textbox', { name: '作者名', exact: true })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: '文章开头', exact: true }).check();
+  await expect(page.getByRole('textbox', { name: '作者名', exact: true })).toHaveValue('我的署名');
+  await page.getByLabel('更多操作').click();
+  await page.getByRole('button', { name: '新建文章', exact: true }).click();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(editor).toHaveValue('需要保留的文章');
+  await page.getByLabel('更多操作').click();
+  await page.getByRole('button', { name: '新建文章', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '新建文章', exact: true }).click();
+  await expect(editor).toHaveValue('');
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Mac', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('textbox', { name: '作者名', exact: true })).toHaveValue('我的署名');
+  await page.getByLabel('更多操作').click();
+  await page.getByRole('button', { name: '恢复上一稿', exact: true }).click();
+  await expect(editor).toHaveValue('需要保留的文章');
+});
+test('长文双向同步、精确点击定位，手机编辑预览切换', async ({ page }) => {
+  await page.goto('/format');
+  const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
+  const markdown = Array.from({ length: 50 }, (_, i) => `## 第 ${i + 1} 节\n\n重复正文。`).join(
+    '\n\n',
+  );
+  await editor.fill(markdown);
+  const preview = page.frameLocator('iframe');
+  await expect(preview.locator('[data-source-line]')).not.toHaveCount(0);
+  await editor.evaluate((el: HTMLTextAreaElement) => {
+    el.scrollTop = el.scrollHeight / 2;
+  });
+  await expect
+    .poll(() => preview.locator('html').evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(1000);
+  await page.waitForTimeout(100);
+  await preview.locator('html').evaluate((el) => {
+    el.scrollTop = 0;
+  });
+  await expect.poll(() => editor.evaluate((el) => el.scrollTop)).toBeLessThan(10);
+  await preview.getByRole('heading', { name: '第 30 节', exact: true }).click();
+  await expect(editor).toBeFocused();
+  await expect
+    .poll(() => editor.evaluate((el: HTMLTextAreaElement) => el.selectionStart))
+    .toBe(markdown.indexOf('## 第 30 节'));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(editor).toBeVisible();
+  await expect(page.locator('iframe')).not.toBeVisible();
+  await page.getByRole('button', { name: '预览', exact: true }).click();
+  await expect(editor).not.toBeVisible();
+  await expect(page.locator('iframe')).toBeVisible();
+  await preview.getByRole('heading', { name: '第 2 节', exact: true }).click();
+  await expect(editor).toBeVisible();
+  await expect(editor).toBeFocused();
+  await expect
+    .poll(() => editor.evaluate((el: HTMLTextAreaElement) => el.selectionStart))
+    .toBe(markdown.indexOf('## 第 2 节'));
+  await page.screenshot({ path: '/tmp/jinzhang-mobile-editor.png' });
+});
 test('图片处理期间继续打字，插入后光标与原生撤销重做正常', async ({ page }) => {
   await page.addInitScript(() => {
     const original = window.createImageBitmap.bind(window);
@@ -93,13 +162,13 @@ test('光标插图即时上传，失败可重试，切平台与刷新复用图�
   await expect(page.getByRole('button', { name: '重试上传' })).toBeVisible();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.getByRole('button', { name: '重试上传' }).click();
-  await expect(page.getByRole('button', { name: '复制到公众号 ↗' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '复制到公众号' })).toBeEnabled();
   await expect(page.frameLocator('iframe').locator('header img')).toHaveCount(0);
   await expect(page.frameLocator('iframe').getByText('未设置封面')).toHaveCount(0);
   await expect.poll(() => uploads).toBe(2);
   await page.getByRole('button', { name: '知乎', exact: true }).click();
   await page.reload();
-  await page.getByRole('button', { name: '复制到知乎 ↗' }).click();
+  await page.getByRole('button', { name: '复制到知乎' }).click();
   await expect(page.getByRole('button', { name: '已复制 ✓' })).toBeVisible();
   expect(uploads).toBe(2);
   await page.evaluate(() => {
@@ -108,7 +177,7 @@ test('光标插图即时上传，失败可重试，切平台与刷新复用图�
     localStorage.setItem('jinzhang-transit-cache', JSON.stringify(saved));
   });
   await page.reload();
-  await page.getByRole('button', { name: '复制到知乎 ↗' }).click();
+  await page.getByRole('button', { name: '复制到知乎' }).click();
   await expect(page.getByRole('button', { name: '已复制 ✓' })).toBeVisible();
   expect(uploads).toBe(3);
   await editor.click();
@@ -169,11 +238,11 @@ test('更多菜单按惯例关闭，后台上传不阻塞公众号或已删图�
   await (await chooser).setFiles(fixture);
   await expect.poll(() => uploadStarted).toBe(true);
   await expect(page.getByText('正在上传 1 张图片…', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '复制到公众号 ↗' }).click();
+  await page.getByRole('button', { name: '复制到公众号' }).click();
   await expect(page.getByRole('button', { name: '已复制 ✓' })).toBeVisible();
   await editor.fill('已删图片的正文');
   await page.getByRole('button', { name: '知乎', exact: true }).click();
-  await expect(page.getByRole('button', { name: '复制到知乎 ↗' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '复制到知乎' })).toBeEnabled();
   await expect(page.getByText('正在上传 1 张图片…', { exact: true })).toHaveCount(0);
   releaseUpload();
   await expect.poll(() => uploadFinished).toBe(true);
@@ -192,10 +261,10 @@ test('标题提取忽略代码，示例替换保留两个平台的个人设置',
   await page.getByRole('button', { name: '用正文一级标题' }).click();
   await expect(title).toHaveValue('真正的标题');
   await page.getByRole('button', { name: 'Mac', exact: true }).click();
-  await page.getByText('编辑固定文案 ↗', { exact: true }).click();
-  await page.getByRole('textbox', { name: '作者名', exact: true }).fill('公众号作者');
   await page.getByRole('checkbox', { name: '文章开头', exact: true }).check();
+  await page.getByRole('textbox', { name: '作者名', exact: true }).fill('公众号作者');
   await page.getByRole('button', { name: '知乎', exact: true }).click();
+  await page.getByRole('checkbox', { name: '文章开头', exact: true }).check();
   await page.getByRole('textbox', { name: '作者名', exact: true }).fill('知乎作者');
   await page.getByText('···', { exact: true }).click();
   await page.getByRole('button', { name: '载入示例', exact: true }).click();
@@ -220,7 +289,6 @@ test('合集网址补全协议，无效输入就地反馈', async ({ page }) => 
   await page.goto('/format');
   await page.getByRole('textbox', { name: 'Markdown 原文' }).fill('正文');
   await page.getByRole('checkbox', { name: '文章结尾', exact: true }).check();
-  await page.getByText('编辑固定文案 ↗', { exact: true }).click();
   const link = page.getByRole('textbox', { name: '合集链接' });
   await link.fill('javascript:alert(1)');
   await link.press('Tab');
@@ -240,20 +308,20 @@ test('补图、刷新恢复、真实富文本复制到两个平台、封面不�
     .getByRole('textbox', { name: 'Markdown 原文' })
     .fill('# 测试文章\n\n正文保留。\n\n![插图](./one/a.png)');
   await page.getByRole('button', { name: '用正文一级标题' }).click();
-  await page.getByRole('button', { name: '复制到公众号 ↗' }).click();
+  await page.getByRole('button', { name: '复制到公众号' }).click();
   await expect(page.getByRole('button', { name: '请先补齐图片' })).toBeVisible();
   await expect(page.getByRole('button', { name: '补图', exact: true })).toBeFocused();
   const chooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: '补图', exact: true }).click();
   await (await chooser).setFiles(fixture);
   await expect(page.getByRole('textbox', { name: 'Markdown 原文' })).toHaveValue(/jz-local:\/\//);
-  await expect(page.getByRole('button', { name: '复制到公众号 ↗' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '复制到公众号' })).toBeEnabled();
   await page.reload();
   await expect(page.getByRole('textbox', { name: 'Markdown 原文' })).toHaveValue(/jz-local:\/\//);
   await expect(
     page.frameLocator('iframe').getByRole('img', { name: '插图', exact: true }),
   ).toBeVisible();
-  await page.getByRole('button', { name: '复制到公众号 ↗' }).click();
+  await page.getByRole('button', { name: '复制到公众号' }).click();
   await expect(page.getByRole('button', { name: '已复制 ✓' })).toBeVisible();
   const html = await page.evaluate(async () => {
     const items = await navigator.clipboard.read();
@@ -281,7 +349,7 @@ test('补图、刷新恢复、真实富文本复制到两个平台、封面不�
   await page.route('**/api/transit/complete', (route) =>
     route.fulfill({ json: { url: 'https://oss.example.test/read?signature=test' } }),
   );
-  await page.getByRole('button', { name: '复制到知乎 ↗' }).click();
+  await page.getByRole('button', { name: '复制到知乎' }).click();
   await expect(page.getByRole('button', { name: '已复制 ✓' })).toBeVisible();
   expect(uploads).toBe(0);
   const zhihu = await page.evaluate(async () => {
@@ -352,7 +420,7 @@ test('剪贴板权限失败后复用已上传图片，重试不会重复上传',
           : original(data),
     });
   });
-  await page.getByRole('button', { name: '复制到知乎 ↗' }).click();
+  await page.getByRole('button', { name: '复制到知乎' }).click();
   await expect(page.getByText('未能写入剪贴板', { exact: true })).toBeVisible();
   expect(uploads).toBe(1);
   await page.getByRole('button', { name: '重试复制', exact: true }).click();
@@ -373,7 +441,7 @@ test('快速改稿不显示旧稿，脚本不执行，手动复制不含标题�
   await page.evaluate(() =>
     Object.defineProperty(window, 'ClipboardItem', { configurable: true, value: undefined }),
   );
-  await page.getByRole('button', { name: '复制到公众号 ↗' }).click();
+  await page.getByRole('button', { name: '复制到公众号' }).click();
   await expect(page.getByText('未能写入剪贴板', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '手动复制' }).click();
   await expect
@@ -384,6 +452,7 @@ test('快速改稿不显示旧稿，脚本不执行，手动复制不含标题�
         .evaluate(() => window.getSelection()?.toString()),
     )
     .toBe('可以手动复制的正文');
+  await expect(page.frameLocator('iframe').locator('[data-source-line]')).toHaveCount(0);
 });
 
 test('粘贴 SVG 可栅格化，复制体积使用实际载荷', async ({ page }) => {
@@ -397,7 +466,7 @@ test('粘贴 SVG 可栅格化，复制体积使用实际载荷', async ({ page }
     el.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: dt }));
   });
   await expect(page.getByRole('textbox', { name: 'Markdown 原文' })).toHaveValue(/jz-local/);
-  await page.getByRole('button', { name: '复制到公众号 ↗' }).click();
+  await page.getByRole('button', { name: '复制到公众号' }).click();
   await expect(page.getByRole('button', { name: '已复制 ✓' })).toBeVisible();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   const size = await page.evaluate(
@@ -424,7 +493,7 @@ test('插图立即上传，编辑不被阻塞，远程图片失败有轻提示',
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.route('https://remote.example.test/image.png', (route) => route.abort());
   await editor.fill('![远程](https://remote.example.test/image.png)');
-  await page.getByRole('button', { name: '复制到公众号 ↗' }).click();
+  await page.getByRole('button', { name: '复制到公众号' }).click();
   await expect(page.getByRole('button', { name: '已复制 ✓' })).toBeVisible();
   await expect(page.locator('.toast')).toContainText('远程图片未能处理');
 });
@@ -472,7 +541,7 @@ test('十张透明图片形成约 5 MB 富文本载荷，Chrome 剪贴板保留�
         ).length,
     )
     .toBe(10);
-  await page.getByRole('button', { name: '复制到公众号 ↗' }).click();
+  await page.getByRole('button', { name: '复制到公众号' }).click();
   await expect(page.getByRole('button', { name: '已复制 ✓' })).toBeVisible({ timeout: 25_000 });
   const payload = await page.evaluate(async () => {
     const data = await navigator.clipboard.read();
@@ -508,7 +577,7 @@ test('旧复制任务晚失败不能覆盖新任务进度', async ({ page }) => 
     });
   });
   const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
-  const copy = page.getByRole('button', { name: '复制到公众号 ↗' });
+  const copy = page.getByRole('button', { name: '复制到公众号' });
   await editor.fill('旧稿');
   await copy.click();
   await editor.fill('新稿');
