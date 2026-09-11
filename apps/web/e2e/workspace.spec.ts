@@ -448,7 +448,9 @@ test('剪贴板权限失败后复用已上传图片，重试不会重复上传',
     });
   });
   await page.getByRole('button', { name: '复制到知乎' }).click();
-  await expect(page.getByText('未能写入剪贴板', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('浏览器未允许写入剪贴板，请重试或手动复制。', { exact: true }),
+  ).toBeVisible();
   expect(uploads).toBe(1);
   await page.getByRole('button', { name: '重试复制', exact: true }).click();
   await expect(page.getByRole('button', { name: '已复制 ✓' })).toBeVisible();
@@ -469,7 +471,9 @@ test('快速改稿不显示旧稿，脚本不执行，手动复制不含标题�
     Object.defineProperty(window, 'ClipboardItem', { configurable: true, value: undefined }),
   );
   await page.getByRole('button', { name: '复制到公众号' }).click();
-  await expect(page.getByText('未能写入剪贴板', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('浏览器不支持富文本剪贴板，请全选预览正文复制。', { exact: true }),
+  ).toBeVisible();
   await page.getByRole('button', { name: '手动复制' }).click();
   await expect
     .poll(() =>
@@ -620,4 +624,106 @@ test('旧复制任务晚失败不能覆盖新任务进度', async ({ page }) => 
   await expect(page.getByRole('dialog')).not.toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new Event('finish-copy-2')));
   await expect(page.getByRole('button', { name: '已复制 ✓' })).toBeVisible();
+});
+
+test('编辑保留上一帧，复制等待最新版本，短视口没有整页溢出', async ({ page }) => {
+  await page.goto('/format');
+  const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
+  await editor.fill('原来的正文');
+  await expect(page.frameLocator('iframe').locator('body')).toContainText('原来的正文');
+  await editor.fill('最新正文');
+  await expect(page.locator('iframe')).toBeVisible();
+  await expect(page.getByRole('button', { name: '复制到公众号', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '复制到公众号', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(async () => navigator.clipboard.readText()))
+    .toContain('最新正文');
+  for (const viewport of [
+    { width: 1440, height: 1000 },
+    { width: 1280, height: 720 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(
+      true,
+    );
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+  await expect(page.getByRole('button', { name: '手机', exact: true })).toBeHidden();
+});
+test('弹窗内部留白不关闭，背景点击仍可关闭', async ({ page }) => {
+  await page.goto('/format');
+  await page.getByRole('textbox', { name: 'Markdown 原文' }).fill('保留正文');
+  await page.getByLabel('更多操作').click();
+  await page.getByRole('button', { name: '新建文章', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.click({ position: { x: 6, y: 6 } });
+  await expect(dialog).toBeVisible();
+  await page.mouse.click(5, 5);
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole('textbox', { name: 'Markdown 原文' })).toHaveValue('保留正文');
+});
+test('拖图到预览区域在原文光标插入，不导航离开编辑器', async ({ page }) => {
+  await page.goto('/format');
+  const editor = page.getByRole('textbox', { name: 'Markdown 原文' });
+  await editor.fill('原文');
+  await editor.press('End');
+  const bytes = [...(await readFile(fixture))];
+  await page.locator('.preview-panel').evaluate((el, bytes) => {
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(new File([new Uint8Array(bytes)], 'outer.png', { type: 'image/png' }));
+    el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+  }, bytes);
+  await expect(editor).toHaveValue(/原文\n!\[outer.png\]\(jz-local:/);
+  await expect(page).toHaveURL(/\/format$/);
+  await expect(page.frameLocator('iframe').locator('img')).toBeVisible();
+  await page
+    .frameLocator('iframe')
+    .locator('body')
+    .evaluate((el, bytes) => {
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(new File([new Uint8Array(bytes)], 'frame.png', { type: 'image/png' }));
+      el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer }));
+    }, bytes);
+  await expect(editor).toHaveValue(/frame.png/);
+  await expect(page.frameLocator('iframe').locator('img')).toHaveCount(2);
+});
+
+test('复制反馈保持尺寸，首页手机入口与图标可用', async ({ page }, testInfo) => {
+  await page.goto('/format');
+  await page
+    .getByRole('textbox', { name: 'Markdown 原文' })
+    .fill('## 排版核对\n\n这是正文，用于核对编辑器和预览的布局。\n\n- 列表一\n- 列表二');
+  const button = page.getByRole('button', { name: '复制到公众号', exact: true });
+  await expect(button).toBeEnabled();
+  const before = await button.boundingBox();
+  const workspace = await page.locator('.workspace').boundingBox();
+  await page.evaluate(() =>
+    Object.defineProperty(navigator.clipboard, 'write', {
+      configurable: true,
+      value: () => Promise.reject(new DOMException('Denied', 'NotAllowedError')),
+    }),
+  );
+  await button.click();
+  await expect(
+    page.getByText('浏览器未允许写入剪贴板，请重试或手动复制。', { exact: true }),
+  ).toBeVisible();
+  expect(await page.locator('.workspace').boundingBox()).toEqual(workspace);
+  expect((await button.boundingBox())?.width).toBe(before?.width);
+  await page.getByRole('button', { name: '关闭复制提示' }).click();
+  await page.screenshot({ path: testInfo.outputPath('desktop.png') });
+  await page.getByRole('button', { name: '手机', exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath('phone-preview.png') });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: '预览', exact: true }).click();
+  await page.screenshot({ path: testInfo.outputPath('mobile.png') });
+  await page.goto('/');
+  await expect(page.getByRole('link', { name: '开始排版 ↗', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const icon = await page.locator('link[rel="icon"]').first().getAttribute('href');
+  expect((await page.request.get(icon!)).ok()).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('home-mobile.png') });
 });

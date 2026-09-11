@@ -1,19 +1,8 @@
 import * as css from 'css-tree';
 import type { Root, Element } from 'hast';
-const inherited = new Set([
-  'color',
-  'font-family',
-  'font-size',
-  'font-weight',
-  'font-style',
-  'line-height',
-  'letter-spacing',
-  'text-align',
-]);
-/** 仅删除明确可继承且与父级相同的值；不推测浏览器默认样式。 */
+/** 压缩声明语法，但保留显式样式，避免目标编辑器默认样式覆盖继承。 */
 export function compactStyles(root: Root) {
-  function walk(parent: Root | Element, ancestor: Map<string, string>) {
-    let next = ancestor;
+  function walk(parent: Root | Element) {
     if (parent.type === 'element' && typeof parent.properties.style === 'string') {
       const declarations: { name: string; value: string; important: boolean }[] = [];
       const ast = css.parse(parent.properties.style, { context: 'declarationList' });
@@ -27,17 +16,14 @@ export function compactStyles(root: Root) {
           declarations.push({ name: node.property, value, important: !!node.important });
         }
       });
-      next = new Map(ancestor);
       const output: string[] = [];
       for (const d of declarations) {
-        if (!inherited.has(d.name) || ancestor.get(d.name) !== d.value || d.important)
-          output.push(`${d.name}:${d.value}${d.important ? '!important' : ''}`);
-        if (inherited.has(d.name)) next.set(d.name, d.value);
+        output.push(`${d.name}:${d.value}${d.important ? '!important' : ''}`);
       }
       if (output.length) parent.properties.style = output.join(';');
       else delete parent.properties.style;
     }
-    for (const child of parent.children) if (child.type === 'element') walk(child, next);
+    for (const child of parent.children) if (child.type === 'element') walk(child);
   }
-  walk(root, new Map());
+  walk(root);
 }

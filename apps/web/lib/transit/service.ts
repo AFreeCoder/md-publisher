@@ -39,7 +39,8 @@ function mac(secret: string | Buffer, value: string) {
 }
 export function issueUpload(config: TransitConfig, mime: unknown, size: unknown, now = Date.now()) {
   if (
-    !['image/jpeg', 'image/png'].includes(String(mime)) ||
+    typeof mime !== 'string' ||
+    !['image/jpeg', 'image/png'].includes(mime) ||
     !Number.isSafeInteger(size) ||
     Number(size) < 1 ||
     Number(size) > MAX_UPLOAD

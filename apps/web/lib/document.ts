@@ -15,7 +15,6 @@ export interface DocumentState {
   title: string;
   theme: ThemeId;
   platform: Platform;
-  cover: string;
   fixed: Record<Platform, FixedContent>;
 }
 export function freshDocument(): DocumentState {
@@ -34,7 +33,6 @@ export function freshDocument(): DocumentState {
     title: '',
     theme: 'sspai',
     platform: 'wechat',
-    cover: '',
     fixed: { wechat: fixed(), zhihu: fixed() },
   };
 }
@@ -46,8 +44,7 @@ export function restoreDocument(raw: string | null): DocumentState {
     typeof d.markdown !== 'string' ||
     typeof d.title !== 'string' ||
     !['wechat', 'zhihu'].includes(d.platform) ||
-    !['sspai', 'native', 'mac'].includes(d.theme) ||
-    typeof d.cover !== 'string'
+    !['sspai', 'native', 'mac'].includes(d.theme)
   )
     throw new Error('本地文档格式无效。');
   for (const platform of ['wechat', 'zhihu']) {
@@ -62,7 +59,13 @@ export function restoreDocument(raw: string | null): DocumentState {
     )
       throw new Error('本地设置格式无效。');
   }
-  return d;
+  return {
+    markdown: d.markdown,
+    title: d.title,
+    theme: d.theme,
+    platform: d.platform,
+    fixed: d.fixed,
+  };
 }
 export function normalizeCollectionLink(value: string): string | null {
   const input = value.trim();
@@ -81,7 +84,7 @@ export function normalizeCollectionLink(value: string): string | null {
   }
 }
 export function templates(f: FixedContent) {
-  const safe = (s: string) => s.replace(/[\\`*_{}[\]()#+.!<>|]/g, '\\$&');
+  const safe = (s: string) => s.replace(/[\\`*_{}[\]()#+.!<>|~=:$/?&@%,;"'-]/g, '\\$&');
   const link = normalizeCollectionLink(f.collection);
   const collection = link ? `\n[继续阅读](${link.replace(/[()\s]/g, encodeURIComponent)})` : '';
   return {

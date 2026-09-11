@@ -70,7 +70,6 @@ export default function Workspace() {
   const [copyPhase, setCopyPhase] = useState<
     'idle' | 'working' | 'ready' | 'failed' | 'stale' | 'success'
   >('idle');
-  const [copySize, setCopySize] = useState<number>();
   const allowSave = useRef(true);
   const skipSave = useRef(false);
   const resolver = useRef(new BrowserAssetResolver());
@@ -105,9 +104,7 @@ export default function Workspace() {
     if (change.platform !== undefined) setCollectionError(false);
     setMessage('');
     currentJob.current = undefined;
-    setCopySize(undefined);
     setBusy(false);
-    setResult(undefined);
     const next = { ...docRef.current, ...change };
     docRef.current = next;
     setDoc(next);
@@ -162,14 +159,13 @@ export default function Workspace() {
       try {
         const config = { date: new Date().toLocaleDateString('sv-SE'), author: fixed.author };
         const input = { markdown: doc.markdown, title: doc.title, templates: templates(fixed) };
-        const key = JSON.stringify([input, doc.platform, doc.cover, fixed, config]);
+        const key = JSON.stringify([input, doc.platform, fixed, config]);
         let prepared =
           preparedCache.current?.key === key
             ? preparedCache.current.value
             : await prepare(input, {
                 platform: doc.platform,
                 fixed,
-                cover: doc.cover || undefined,
                 resolver: resolver.current,
                 config,
                 version: String(token),
@@ -343,6 +339,7 @@ export default function Workspace() {
   function onDrop(event: DragEvent<HTMLTextAreaElement>) {
     if (event.dataTransfer.files.length) {
       event.preventDefault();
+      event.stopPropagation();
       const offset = dropOffset(event.currentTarget, event.clientX, event.clientY);
       insertion.current = [offset, offset];
       void insertFiles(event.dataTransfer.files);
@@ -363,7 +360,7 @@ export default function Workspace() {
       setPreviousArticle(previous);
     }
     pendingInsertions.current.clear();
-    update({ markdown, title, cover: '' });
+    update({ markdown, title });
     setMobilePane('editor');
     setModal(null);
   }
@@ -371,7 +368,8 @@ export default function Workspace() {
     if (previousArticle) replaceArticle(previousArticle.markdown, previousArticle.title);
   }
   function beginCopy() {
-    if (!result || !doc.markdown.trim()) return;
+    if (!result || result.version !== String(version.current.current()) || !doc.markdown.trim())
+      return;
     if (result.images.some((i) => i.source.kind === 'missing')) {
       setMissingCopy(true);
       document.querySelector('.missing-images')?.scrollIntoView({ block: 'nearest' });
@@ -383,7 +381,7 @@ export default function Workspace() {
     executeCopy();
   }
   function executeCopy() {
-    if (!result) return;
+    if (!result || result.version !== String(version.current.current())) return;
     const token = version.current.current();
     const platform = doc.platform;
     setBusy(true);
@@ -401,7 +399,6 @@ export default function Workspace() {
       );
       const payload = placeImages(result, store).then((p) => {
         version.current.assert(token);
-        setCopySize(p.bytes);
         setMessage('正文已准备完成。');
         return p;
       });
@@ -428,14 +425,20 @@ export default function Workspace() {
           setNotice(selected.store.warnings.map((w) => w.message).join(' '));
         setBusy(false);
       })
-      .catch(async () => {
+      .catch(async (error: unknown) => {
         // 改稿时已同步提示任务失效；旧回调不能覆盖之后开始的新任务。
         if (token !== version.current.current()) return;
         try {
           await selected.payload;
           version.current.assert(token);
           setCopyPhase('ready');
-          setMessage('未能写入剪贴板');
+          setMessage(
+            error instanceof Error
+              ? error.name === 'NotAllowedError'
+                ? '浏览器未允许写入剪贴板，请重试或手动复制。'
+                : error.message
+              : '未能写入剪贴板，请重试。',
+          );
         } catch (problem) {
           if (token !== version.current.current()) return;
           currentJob.current = undefined;
@@ -508,7 +511,21 @@ export default function Workspace() {
   const currentUploadFailed = uploadFailed.filter((ref) => referencedImages.has(ref));
   const unique = (images: ImageRef[]) => [...new Map(images.map((i) => [i.original, i])).values()];
   return (
-    <main id="format">
+    <main
+      id="format"
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes('Files')) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (!event.dataTransfer.files.length) return;
+        event.preventDefault();
+        insertion.current = [
+          editor.current?.selectionStart || 0,
+          editor.current?.selectionEnd || 0,
+        ];
+        void insertFiles(event.dataTransfer.files);
+      }}
+    >
       <header className="work-header">
         <Link className="brand" href="/">
           <span className="seal">锦章</span> <span className="workspace-title">在线排版</span>
@@ -541,6 +558,7 @@ export default function Workspace() {
               className="primary"
               disabled={
                 !result ||
+                result.version !== String(version.current.current()) ||
                 !doc.markdown.trim() ||
                 busy ||
                 (doc.platform === 'zhihu' && uploading > 0)
@@ -669,7 +687,9 @@ export default function Workspace() {
             value={doc.markdown}
             onChange={(e) => update({ markdown: e.target.value }, true)}
             onPaste={onPaste}
-            onDragOver={(e) => e.preventDefault()}
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+            }}
             onDrop={onDrop}
           />
           {missing.length > 0 && (
@@ -715,6 +735,21 @@ export default function Workspace() {
                   srcDoc={preview}
                   onLoad={() => {
                     disconnectPreview.current();
+                    const previewDoc = frame.current?.contentDocument;
+                    if (previewDoc) {
+                      previewDoc.ondragover = (event) => {
+                        if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
+                      };
+                      previewDoc.ondrop = (event) => {
+                        if (!event.dataTransfer?.files.length) return;
+                        event.preventDefault();
+                        insertion.current = [
+                          editor.current?.selectionStart || 0,
+                          editor.current?.selectionEnd || 0,
+                        ];
+                        void insertFiles(event.dataTransfer.files);
+                      };
+                    }
                     if (editor.current && frame.current)
                       disconnectPreview.current = connectPreview(
                         editor.current,
@@ -877,7 +912,15 @@ export default function Workspace() {
         onCancel={() => setModal(null)}
         className="modal"
         onClick={(e) => {
-          if (e.target === dialog.current) setModal(null);
+          if (e.target !== dialog.current) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          if (
+            e.clientX < rect.left ||
+            e.clientX > rect.right ||
+            e.clientY < rect.top ||
+            e.clientY > rect.bottom
+          )
+            setModal(null);
         }}
       >
         <div className="eyebrow">JINZHANG</div>

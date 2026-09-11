@@ -108,3 +108,8 @@ it('POST V4 签名与 OSS 官方 SDK 对照一致', async () => {
   );
   expect(signed.fields['x-oss-signature']).toBe(expected);
 });
+
+it('拒绝 MIME 数组或对象，避免签名类型与扩展名不一致', () => {
+  expect(() => issueUpload(config, ['image/png'], 123)).toThrow();
+  expect(() => issueUpload(config, { toString: () => 'image/png' }, 123)).toThrow();
+});

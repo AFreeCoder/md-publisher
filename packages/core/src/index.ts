@@ -29,6 +29,7 @@ import { HTML_WARNING } from './types';
 import { inlineTheme } from './theme';
 import { safeStyle } from './sanitize-style';
 import { compactStyles } from './compact-styles';
+import { stripFrontmatter } from './frontmatter';
 export * from './types';
 export { themes } from './theme';
 const lowlight = createLowlight(common);
@@ -55,18 +56,34 @@ const element = (
   properties: Element['properties'] = {},
 ): Element => ({ type: 'element', tagName, properties, children: children as Element['children'] });
 export function template(source: string, values: Record<string, string>) {
+  const value = (key: string) =>
+    Object.hasOwn(values, key) && typeof values[key] === 'string' ? values[key] : '';
   return source
     .split('\n')
-    .filter((line) => ![...line.matchAll(/\{\{(\w+)\}\}/g)].some((m) => !values[m[1]]))
-    .map((line) => line.replace(/\{\{(\w+)\}\}/g, (_, key) => escapeHtml(values[key] || '')))
+    .filter((line) => ![...line.matchAll(/\{\{(\w+)\}\}/g)].some((m) => !value(m[1])))
+    .map((line) => line.replace(/\{\{(\w+)\}\}/g, (_, key) => escapeHtml(value(key))))
     .join('\n');
 }
 async function parse(markdown: string, warnings: Warning[]): Promise<Root> {
+  const imageUrls = new Map<number, string>();
   const processor = unified()
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkDirective)
     .use(() => (tree) => {
+      const definitions = new Map<string, string>();
+      visit(tree, 'definition', (node: any) => {
+        definitions.set(node.identifier, node.url);
+      });
+      visit(tree, (node: any) => {
+        const url =
+          node.type === 'image'
+            ? node.url
+            : node.type === 'imageReference'
+              ? definitions.get(node.identifier)
+              : undefined;
+        if (url !== undefined && node.position) imageUrls.set(node.position.start.offset, url);
+      });
       visit(tree, 'link', (node: any, index, parent: any) => {
         if (index === undefined || !parent || !node.position) return;
         const source = markdown.slice(node.position.start.offset, node.position.end.offset);
@@ -100,10 +117,21 @@ async function parse(markdown: string, warnings: Warning[]): Promise<Root> {
         }
       });
     })
-    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(remarkRehype, { allowDangerousHtml: true, footnoteLabel: '注释' })
     .use(rehypeRaw);
   const raw = (await processor.run(processor.parse(markdown))) as Root;
-  const before = toHtml(raw);
+  const comparable = (tree: Root) => {
+    const copy = structuredClone(tree);
+    visit(copy, 'element', (node) => {
+      if (typeof node.properties.id === 'string')
+        node.properties.id = node.properties.id.replace(/^(?:user-content-)+/, '');
+    });
+    return toHtml(copy).replace(
+      /aria-describedby="(?:user-content-)*footnote-label"/g,
+      'aria-describedby="footnote-label"',
+    );
+  };
+  const before = comparable(raw);
   visit(raw, 'element', (node) => {
     if (node.properties.style) {
       const style = safeStyle(String(node.properties.style));
@@ -112,26 +140,32 @@ async function parse(markdown: string, warnings: Warning[]): Promise<Root> {
     }
   });
   const clean = (await unified().use(rehypeSanitize, schema).run(raw)) as Root;
-  if (before !== toHtml(clean))
+  if (before !== comparable(clean))
     warnings.push({ code: 'HTML_STRIPPED', message: '已清理不支持或不安全的 HTML 标签、属性。' });
+  visit(clean, 'element', (node) => {
+    if (
+      node.tagName === 'img' &&
+      node.position &&
+      node.properties.src &&
+      imageUrls.has(node.position.start.offset!)
+    )
+      node.properties.src = imageUrls.get(node.position.start.offset!);
+  });
   return clean;
 }
 export async function extractMarkdownTitle(markdown: string): Promise<string> {
-  const source = markdown
-    .replace(/^\uFEFF/, '')
-    .replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
+  const { source } = stripFrontmatter(markdown);
   const body = await parse(source, []);
   const heading = body.children.find((node) => node.type === 'element' && node.tagName === 'h1');
   return heading ? toText(heading).trim() : '';
 }
 export async function prepare(input: ArticleInput, opts: PrepareOptions): Promise<PreparedArticle> {
   const warnings: Warning[] = [];
-  let source = input.markdown.replace(/^\uFEFF/, '');
-  if (/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/.test(source)) {
-    source = source.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
+  const { source, ignored } = stripFrontmatter(input.markdown);
+  if (ignored) {
     warnings.push({
       code: 'FRONTMATTER_IGNORED',
-      message: '已忽略 frontmatter，请使用页面标题与封面设置。',
+      message: '已忽略 frontmatter，文章信息由当前入口单独设置。',
     });
   }
   if (/!?\[\[|^>\s*\[!/m.test(source))
@@ -148,7 +182,7 @@ export async function prepare(input: ArticleInput, opts: PrepareOptions): Promis
       node.data = { ...node.data, sourceLine: node.position.start.line + lineOffset };
   });
   const first = body.children.findIndex((n) => n.type === 'element' && n.tagName === 'h1');
-  if (first >= 0 && input.title && toText(body.children[first]) === input.title)
+  if (first >= 0 && input.title && toText(body.children[first]).trim() === input.title.trim())
     body.children.splice(first, 1);
   const values = { ...opts.config, title: input.title };
   const header = opts.fixed.header
@@ -313,10 +347,18 @@ function dialect(tree: Root, platform: 'wechat' | 'zhihu', degraded: Warning[]) 
               })(),
             }
           : {};
-      parent.children[index] = element('sup', [{ type: 'text', value: `[${number}]` }], attrs);
+      if (parent.type === 'element' && parent.tagName === 'sup') {
+        parent.properties = { ...parent.properties, ...attrs };
+        parent.children[index] = { type: 'text', value: `[${number}]` };
+      } else
+        parent.children[index] = element('sup', [{ type: 'text', value: `[${number}]` }], attrs);
       return;
     }
     if (platform === 'wechat') {
+      if (node.properties.dataFootnoteBackref !== undefined) {
+        parent.children[index] = { type: 'text', value: '' };
+        return;
+      }
       if (node.tagName === 'div') node.tagName = 'section';
       if (node.tagName === 'ul' || node.tagName === 'ol')
         node.children = node.children.filter((c) => c.type !== 'text' || !!c.value.trim());

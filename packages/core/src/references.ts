@@ -1,3 +1,4 @@
+import { decodeHTMLAttribute } from 'entities';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { visit } from 'unist-util-visit';
@@ -25,9 +26,13 @@ export function replaceImageReference(markdown: string, original: string, replac
         end = node.position.end.offset;
       if (start === undefined || end === undefined) return;
       const value = node.value.replace(
-        /(<img\b[^>]*\bsrc\s*=\s*)(["'])(.*?)\2/gi,
-        (all, prefix, quote, ref) =>
-          ref === original ? `${prefix}${quote}${replacement}${quote}` : all,
+        /(<img\b[^>]*?\s+src\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+        (all, prefix, doubleQuoted, singleQuoted, unquoted) => {
+          const ref = doubleQuoted ?? singleQuoted ?? unquoted;
+          return decodeHTMLAttribute(ref) === original
+            ? `${prefix}"${replacement.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"`
+            : all;
+        },
       );
       if (value !== node.value) changes.push({ start, end, value });
     }
